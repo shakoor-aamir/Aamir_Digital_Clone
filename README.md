@@ -1,3 +1,79 @@
+# AI Interview Agent — Profile-Grounded LLM System
+
+## Overview
+A lightweight AI-powered interview assistant that generates **credible, role-specific answers** grounded strictly in a curated professional profile.
+
+The system is designed to eliminate hallucination and ensure every response is **defensible in a real interview**.
+
+---
+
+## Problem
+Most AI-generated interview answers:
+- sound generic
+- hallucinate experience
+- lack credibility for senior roles
+
+This project addresses that by enforcing:
+- strict grounding in real profile data
+- controlled response styles
+- validation before output
+
+---
+
+## Solution
+A Next.js-based application that combines:
+- structured profile knowledge base
+- lightweight retrieval system
+- constrained prompt engineering
+
+The result:
+👉 answers that sound real, senior, and defensible
+
+---
+
+## Key Features
+
+### Profile-Grounded Responses
+- Uses curated markdown files (profile, experience, guardrails)
+- Prevents unsupported claims and hallucinations
+
+### Answer Modes
+- Concise
+- Interview (structured 2-minute answers)
+- Executive (high-signal bullets)
+- Technical Deep Dive
+
+### Role Targeting
+Adapts answers based on role:
+- Product Manager
+- Product Owner
+- System Architect
+- AI Product Manager
+- Embedded/Automotive Leader
+
+### Guardrails (Critical)
+- No fabricated experience
+- No exaggerated impact
+- Explicit handling of uncertainty
+- Self-check before output
+
+---
+
+## Architecture
+
+```text
+User Input (UI)
+   ↓
+API Route (Next.js)
+   ↓
+Retrieval Layer (Markdown-based)
+   ↓
+Prompt Assembly
+   ↓
+LLM (Grounded Generation)
+   ↓
+Structured Output (Answer + Evidence)
+
 # Aamir Interview Agent
 
 A minimal Next.js MVP for generating interview answers that sound like Aamir Shakoor using only curated local profile documents.
