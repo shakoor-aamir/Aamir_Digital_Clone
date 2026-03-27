@@ -9,3 +9,7 @@ npm-debug.log*
 .env.local
 .env.example
 .env.local
+
+tsconfig.tsbuildinfo
+
+tsconfig.tsbuildinfo
