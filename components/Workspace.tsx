@@ -9,6 +9,7 @@ export function Workspace() {
   const [data, setData] = useState<AnswerResponse | null>(null);
   const [answerMode, setAnswerMode] = useState<AnswerMode>("interview");
   const [roleTarget, setRoleTarget] = useState<RoleTarget>("AI Product Manager");
+  const [jobDescriptionProvided, setJobDescriptionProvided] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,6 +23,7 @@ export function Workspace() {
         onDataChange={setData}
         onAnswerModeChange={setAnswerMode}
         onRoleTargetChange={setRoleTarget}
+        onJobDescriptionProvidedChange={setJobDescriptionProvided}
         onLoadingChange={setLoading}
         onErrorChange={setError}
       />
@@ -29,6 +31,7 @@ export function Workspace() {
         data={data}
         answerMode={answerMode}
         roleTarget={roleTarget}
+        jobDescriptionProvided={jobDescriptionProvided}
         loading={loading}
         error={error}
       />

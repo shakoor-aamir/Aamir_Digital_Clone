@@ -17,6 +17,7 @@ interface InterviewFormProps {
   onDataChange: (value: AnswerResponse | null) => void;
   onAnswerModeChange: (value: AnswerMode) => void;
   onRoleTargetChange: (value: RoleTarget) => void;
+  onJobDescriptionProvidedChange: (value: boolean) => void;
   onLoadingChange: (value: boolean) => void;
   onErrorChange: (value: string | null) => void;
 }
@@ -29,10 +30,12 @@ export function InterviewForm({
   onDataChange,
   onAnswerModeChange,
   onRoleTargetChange,
+  onJobDescriptionProvidedChange,
   onLoadingChange,
   onErrorChange
 }: InterviewFormProps) {
   const [question, setQuestion] = useState("");
+  const [jobDescription, setJobDescription] = useState("");
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -47,6 +50,7 @@ export function InterviewForm({
 
     onLoadingChange(true);
     onDataChange(null);
+    onJobDescriptionProvidedChange(Boolean(jobDescription.trim()));
 
     try {
       const response = await fetch("/api/answer", {
@@ -57,7 +61,8 @@ export function InterviewForm({
         body: JSON.stringify({
           question,
           answerMode,
-          roleTarget
+          roleTarget,
+          jobDescription
         })
       });
 
@@ -94,6 +99,23 @@ export function InterviewForm({
           rows={8}
           placeholder="How would you describe your approach to leading platform work across product, architecture, and delivery?"
           className="min-h-[220px] w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 text-sm leading-6 text-[var(--text)] shadow-sm outline-none transition focus:border-[var(--accent)] focus:ring-4 focus:ring-[rgba(13,92,99,0.12)]"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label
+          className="text-sm font-medium text-[var(--text)]"
+          htmlFor="jobDescription"
+        >
+          Job Description (optional)
+        </label>
+        <textarea
+          id="jobDescription"
+          value={jobDescription}
+          onChange={(event) => setJobDescription(event.target.value)}
+          rows={8}
+          placeholder="Paste the job description here to tailor the answer for a specific role..."
+          className="min-h-[200px] w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 text-sm leading-6 text-[var(--text)] shadow-sm outline-none transition focus:border-[var(--accent)] focus:ring-4 focus:ring-[rgba(13,92,99,0.12)]"
         />
       </div>
 

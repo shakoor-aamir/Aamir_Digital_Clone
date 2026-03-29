@@ -14,6 +14,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Partial<AnswerRequestBody>;
     const question = body.question?.trim();
+    const jobDescription = body.jobDescription?.trim();
 
     if (!question) {
       return NextResponse.json(
@@ -36,13 +37,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const retrieval = await retrieveRelevantContext(question, body.roleTarget);
+    console.log("JOB DESCRIPTION PROVIDED:", Boolean(jobDescription));
+
+    const retrieval = await retrieveRelevantContext(
+      question,
+      body.roleTarget,
+      jobDescription
+    );
     const systemPrompt = await buildSystemPrompt();
     const userPrompt = buildUserPrompt({
       question,
       answerMode: body.answerMode,
       roleTarget: body.roleTarget,
-      sections: retrieval.sections
+      sections: retrieval.sections,
+      jobDescriptionSignals: retrieval.jobDescriptionSignals,
+      jobDescriptionProvided: Boolean(jobDescription)
     });
 
     const messages = [

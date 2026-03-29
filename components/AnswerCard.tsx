@@ -7,6 +7,7 @@ interface AnswerCardProps {
   data: AnswerResponse | null;
   answerMode: AnswerMode;
   roleTarget: RoleTarget;
+  jobDescriptionProvided: boolean;
   loading: boolean;
   error: string | null;
 }
@@ -15,6 +16,7 @@ export function AnswerCard({
   data,
   answerMode,
   roleTarget,
+  jobDescriptionProvided,
   loading,
   error
 }: AnswerCardProps) {
@@ -59,9 +61,16 @@ export function AnswerCard({
               <div className="h-4 w-[74%] animate-pulse rounded bg-[var(--background-strong)]" />
             </div>
           ) : data ? (
-            <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--text)]">
-              {data.answer}
-            </p>
+            <div className="space-y-3">
+              {jobDescriptionProvided ? (
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-[var(--muted)]">
+                  Tailored to the supplied job description
+                </p>
+              ) : null}
+              <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--text)]">
+                {data.answer}
+              </p>
+            </div>
           ) : (
             <p className="text-sm leading-7 text-[var(--muted)]">
               Ask a question to generate an answer grounded in the curated Aamir

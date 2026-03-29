@@ -20,6 +20,7 @@ export interface AnswerRequestBody {
   question: string;
   answerMode: AnswerMode;
   roleTarget: RoleTarget;
+  jobDescription?: string;
 }
 
 export interface AnswerResponse {
@@ -40,4 +41,5 @@ export interface RetrievalSection {
 export interface RetrievalResult {
   sections: RetrievalSection[];
   experienceAreas: string[];
+  jobDescriptionSignals: string[];
 }

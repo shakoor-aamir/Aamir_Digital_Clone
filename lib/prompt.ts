@@ -56,18 +56,35 @@ export function buildUserPrompt({
   question,
   answerMode,
   roleTarget,
-  sections
+  sections,
+  jobDescriptionSignals,
+  jobDescriptionProvided
 }: {
   question: string;
   answerMode: AnswerMode;
   roleTarget: RoleTarget;
   sections: RetrievalSection[];
+  jobDescriptionSignals: string[];
+  jobDescriptionProvided: boolean;
 }): string {
+  const jobDescriptionSection = jobDescriptionProvided
+    ? [
+        "JOB DESCRIPTION SIGNALS:",
+        jobDescriptionSignals.length
+          ? jobDescriptionSignals.map((signal) => `- ${signal}`).join("\n")
+          : "- No strong job description themes were extracted."
+      ].join("\n")
+    : "JOB DESCRIPTION SIGNALS:\n- No job description was provided.";
+
+  console.log("JOB DESCRIPTION PROMPT SECTION:", jobDescriptionSection);
+
   const userPrompt = [
     "Generate a supported interview answer from the retrieved profile context only.",
     `Answer mode: ${answerMode}`,
     `Role target: ${roleTarget}`,
     `Interview question: ${question}`,
+    "",
+    jobDescriptionSection,
     "",
     "Retrieved context:",
     formatSections(sections),

@@ -63,12 +63,81 @@ const FACTUAL_SECTION_TITLES = [
   "professional summary"
 ] as const;
 
+const JD_PRIORITY_PHRASES = [
+  "roadmap",
+  "stakeholder",
+  "stakeholder alignment",
+  "backlog",
+  "prioritization",
+  "product strategy",
+  "ai",
+  "machine learning",
+  "llm",
+  "experimentation",
+  "architecture",
+  "system design",
+  "autosar",
+  "diagnostics",
+  "embedded",
+  "cross-functional",
+  "agile",
+  "ownership",
+  "requirements",
+  "delivery",
+  "platform",
+  "safety"
+] as const;
+
+const STOPWORDS = new Set([
+  "about",
+  "across",
+  "after",
+  "also",
+  "and",
+  "are",
+  "been",
+  "being",
+  "both",
+  "build",
+  "candidate",
+  "collaborate",
+  "deliver",
+  "each",
+  "from",
+  "have",
+  "into",
+  "looking",
+  "must",
+  "need",
+  "needs",
+  "role",
+  "team",
+  "teams",
+  "that",
+  "their",
+  "them",
+  "they",
+  "this",
+  "will",
+  "with",
+  "work",
+  "working",
+  "would",
+  "years",
+  "your",
+  "experience"
+]);
+
 function tokenize(input: string): string[] {
   return input
     .toLowerCase()
     .replace(/[^a-z0-9\s/-]/g, " ")
     .split(/\s+/)
     .filter((token) => token.length > 2);
+}
+
+function normalizeForMatching(input: string): string {
+  return input.toLowerCase().replace(/[^a-z0-9\s/-]/g, " ");
 }
 
 function inferExperienceArea(source: string, title: string, content: string): string {
@@ -110,14 +179,47 @@ function inferExperienceArea(source: string, title: string, content: string): st
 }
 
 function isFactualProfileQuestion(question: string): boolean {
-  const normalized = question.toLowerCase();
+  const normalized = normalizeForMatching(question);
   const hasYear = /\b(19|20)\d{2}\b/.test(normalized);
-  const hasYearRange = /\b(19|20)\d{2}\s*[–-]\s*(19|20)\d{2}\b/.test(normalized);
+  const hasYearRange = /\b(19|20)\d{2}\s*[–-]\s*(19|20)\d{2}\b/.test(question);
   const hasFactualKeyword = FACTUAL_KEYWORDS.some((keyword) =>
     normalized.includes(keyword)
   );
 
   return hasYear || hasYearRange || hasFactualKeyword;
+}
+
+function extractJobDescriptionSignals(jobDescription?: string): string[] {
+  const normalized = normalizeForMatching(jobDescription || "");
+
+  if (!normalized.trim()) {
+    return [];
+  }
+
+  const signalScores = new Map<string, number>();
+
+  for (const phrase of JD_PRIORITY_PHRASES) {
+    const escapedPhrase = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const matches = normalized.match(new RegExp(`\\b${escapedPhrase}\\b`, "g"));
+
+    if (matches?.length) {
+      signalScores.set(phrase, matches.length * 6);
+    }
+  }
+
+  for (const token of tokenize(normalized)) {
+    if (STOPWORDS.has(token)) {
+      continue;
+    }
+
+    const current = signalScores.get(token) || 0;
+    signalScores.set(token, current + 1);
+  }
+
+  return Array.from(signalScores.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 8)
+    .map(([signal]) => signal);
 }
 
 function getExactTokenMatchCount(sectionTokens: Set<string>, queryTokens: string[]): number {
@@ -175,11 +277,15 @@ function scoreSection(
   section: RetrievalSection,
   queryTokens: string[],
   roleTarget: RoleTarget,
-  factualQuestion: boolean
+  factualQuestion: boolean,
+  jobDescriptionSignals: string[]
 ): number {
   const sectionTokens = tokenize(`${section.title} ${section.content}`);
   const tokenSet = new Set(sectionTokens);
   const normalizedTitle = section.title.toLowerCase();
+  const normalizedSectionText = normalizeForMatching(
+    `${section.title} ${section.content}`
+  );
   const exactMatchCount = getExactTokenMatchCount(tokenSet, queryTokens);
 
   let score = 0;
@@ -204,12 +310,20 @@ function scoreSection(
     score += 1;
   }
 
+  if (section.source === "answer_styles.md" || section.source === "interview_answer_bank.md") {
+    score -= 1;
+  }
+
   if (factualQuestion) {
     if (section.source === "master_profile.md") {
       score += 18;
     }
 
-    if (FACTUAL_SECTION_TITLES.includes(normalizedTitle as (typeof FACTUAL_SECTION_TITLES)[number])) {
+    if (
+      FACTUAL_SECTION_TITLES.includes(
+        normalizedTitle as (typeof FACTUAL_SECTION_TITLES)[number]
+      )
+    ) {
       score += 24;
     }
 
@@ -226,44 +340,96 @@ function scoreSection(
     }
   }
 
+  if (jobDescriptionSignals.length > 0) {
+    let jdMatchScore = 0;
+
+    for (const signal of jobDescriptionSignals) {
+      if (signal.includes(" ")) {
+        if (normalizedSectionText.includes(signal)) {
+          jdMatchScore += 5;
+        }
+      } else if (tokenSet.has(signal)) {
+        jdMatchScore += 4;
+      }
+    }
+
+    if (section.source === "master_profile.md") {
+      score += jdMatchScore * 2;
+    } else {
+      score += jdMatchScore;
+    }
+
+    if (
+      jdMatchScore === 0 &&
+      (section.source === "answer_styles.md" || section.source === "interview_answer_bank.md")
+    ) {
+      score -= 4;
+    }
+  }
+
   return score;
 }
 
 export async function retrieveRelevantContext(
   question: string,
-  roleTarget: RoleTarget
+  roleTarget: RoleTarget,
+  jobDescription?: string
 ): Promise<RetrievalResult> {
   console.log("USER QUESTION:", question);
   const factualQuestion = isFactualProfileQuestion(question);
+  const jobDescriptionProvided = Boolean(jobDescription?.trim());
+  const jobDescriptionSignals = extractJobDescriptionSignals(jobDescription);
   console.log("FACTUAL PROFILE QUESTION:", factualQuestion);
+  console.log("JOB DESCRIPTION PROVIDED:", jobDescriptionProvided);
+  console.log("JOB DESCRIPTION SIGNALS:", jobDescriptionSignals);
   const queryTokens = tokenize(`${question} ${roleTarget}`);
   const allSections = await loadSections();
+  const baselineRankedIds = allSections
+    .map((section) => ({
+      ...section,
+      score: scoreSection(section, queryTokens, roleTarget, factualQuestion, [])
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, factualQuestion ? 3 : 6)
+    .map((section) => section.id)
+    .join("|");
 
   const ranked = allSections
     .map((section) => ({
       ...section,
-      score: scoreSection(section, queryTokens, roleTarget, factualQuestion)
+      score: scoreSection(
+        section,
+        queryTokens,
+        roleTarget,
+        factualQuestion,
+        jobDescriptionSignals
+      )
     }))
     .sort((a, b) => b.score - a.score);
 
   const selected = ranked
     .filter((section, index) => section.score > 0 || index < 5)
     .slice(0, factualQuestion ? 3 : 6);
+  const rankingChangedBecauseOfJobDescription =
+    jobDescriptionSignals.length > 0 &&
+    baselineRankedIds !== selected.map((section) => section.id).join("|");
 
   const experienceAreas = Array.from(
     new Set(selected.map((section) => section.experienceArea))
   );
 
+  console.log(
+    "RETRIEVAL RANKING CHANGED BECAUSE OF JD:",
+    rankingChangedBecauseOfJobDescription
+  );
   console.log("RETRIEVED CHUNKS COUNT:", selected.length);
   selected.forEach((section, index) => {
-    console.log(
-      `CHUNK ${index}:`,
-      section.content.slice(0, 200)
-    );
+    console.log(`CHUNK ${index}:`, section.content.slice(0, 200));
   });
 
   return {
     sections: selected,
-    experienceAreas
+    experienceAreas,
+    jobDescriptionSignals
   };
 }
