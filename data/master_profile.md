@@ -54,6 +54,17 @@ Senior Product Manager / Product Owner with 15+ years of experience in automotiv
 - Technical Leadership
 
 ---
+## Automotive Software & Systems Expertise
+
+- Requirements Engineering (SystemWeaver, CarWeaver)
+- Diagnostics Definition (CarCom, SSDS, SDB)
+- Signal Management (Elektra – Signal Database)
+- Supplier Coordination & Requirement Alignment
+- End-to-End Software Lifecycle Ownership (design → validation → release)
+- Software Quality & Compliance (ASPICE, ISO 26262, MISRA)
+- System Integration across ECU, platform, and vehicle level
+- Verification & Validation (SIL, HIL, system-level testing)
+---
 
 ## Tools & Standards
 - AUTOSAR (COM, DEM, DCM, MCAL)
@@ -68,6 +79,44 @@ Senior Product Manager / Product Owner with 15+ years of experience in automotiv
 - MATLAB/SIMULINK
 - CMAKE/MAKE
 - PYTHON
+## Automotive Toolchain (Volvo Ecosystem)
+
+- SystemWeaver / CarWeaver — Requirements structure and traceability
+- CarCom — Diagnostics requirements (SSDS, SDB)
+- Elektra — Signal database management
+- CANoe / CANalyzer — Communication and diagnostics testing
+- CAPL / Python — Test automation
+- Trace32 — Debugging and low-level analysis
+---
+## Requirements & Architecture Work
+
+- Defined and structured software requirements across multiple ECUs and domains
+- Ensured traceability between system, software, and diagnostics requirements
+- Managed requirement changes and alignment across stakeholders and suppliers
+- Collaborated with system architects to align architecture and implementation
+- Worked with diagnostics definition and validation (CarCom, SSDS/SDB)
+- Supported signal-level alignment through Elektra and system databases
+
+---
+- Defined and structured SW requirements using SystemWeaver and related tooling
+- Ensured diagnostics alignment using CarCom (SSDS/SDB)
+- Coordinated requirement implementation across Tier-1 suppliers
+- Maintained traceability across system, software, and diagnostics layers
+
+---
+## Verification & Testing
+
+- End-to-end system verification for telematics and embedded systems
+- Automated test development using Python and CAPL
+- Worked with CANoe, CANalyzer, and Trace32 for validation and debugging
+- Conducted regression testing and validation to improve release stability
+
+---
+## Volvo Ecosystem Experience
+
+- Experience working within Volvo Cars and Volvo Group development environments
+- Familiar with Volvo development processes, toolchain, and requirement structures
+- Experience with supplier-driven development and system integration workflows
 
 ---
 
