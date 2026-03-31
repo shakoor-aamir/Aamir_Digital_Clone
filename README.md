@@ -1,163 +1,211 @@
 # Aamir Interview Agent
 
-A minimal Next.js app for generating interview answers that sound like Aamir Shakoor while staying grounded in curated local profile documents.
+A grounded AI interview agent that turns real experience into role-tailored, defensible answers.
 
-## What it does
+## 🚀 Live Demo
 
-- Accepts an interview question
-- Lets the user choose an answer mode and role target
-- Optionally accepts a pasted job description to tailor emphasis
-- Retrieves the most relevant local profile sections with lightweight keyword scoring
-- Assembles a deterministic server-side prompt from curated markdown files
-- Calls an OpenAI-compatible chat completion endpoint
-- Returns grounded answer text, experience areas used, and a support note
+Try it here:  
+https://aamir-digital-clone.vercel.app/
 
-## Job Description Adaptation
+This is a grounded AI interview agent that answers only from real experience.
 
-When a job description is provided, the app:
+## Problem Statement
 
-- extracts lightweight themes and keywords from the pasted JD
-- uses those signals to influence retrieval ranking
-- tailors emphasis and terminology in the final answer
-- keeps `master_profile.md` as the highest-trust factual source
-- avoids unsupported alignment and softens phrasing where needed
+Most AI-generated interview answers fail in exactly the ways that matter most:
 
-The job description is treated as a relevance signal, not as source truth about Aamir.
+- they hallucinate experience
+- they sound generic and over-polished
+- they ignore role context
+- they cannot distinguish between strong evidence and weak alignment
 
-## Stack
+That makes them risky for senior candidates, technical interviews, and product leadership conversations where credibility matters.
 
-- Next.js 15 App Router
-- TypeScript
-- Tailwind CSS
-- Local markdown knowledge base
-- OpenAI-compatible HTTP API pattern
+## Solution
 
-## Project structure
+Aamir Interview Agent is a hybrid RAG interview system that generates answers from structured profile evidence, adapts to job descriptions, and routes response behavior by role type.
+
+Instead of relying on vague prompting alone, it combines:
+
+- local profile knowledge in markdown
+- semantic retrieval with embeddings
+- deterministic rule-based reranking
+- role-aware routing for embedded, product, and AI-product roles
+- prompt grounding and suppression logic to reduce hallucination
+
+The result is an answer engine that is personalized, inspectable, and much more defensible than a generic chatbot.
+
+## Key Features
+
+- Hybrid RAG pipeline with semantic retrieval plus deterministic reranking
+- Structured markdown knowledge base for profile facts, experience areas, styles, and guardrails
+- Job description adaptation to shift emphasis toward the target role
+- Role-aware routing for:
+  - embedded / system roles
+  - product roles
+  - AI-first / AI product roles
+- Prompt grounding designed to avoid unsupported claims
+- Fact-oriented retrieval for timeline, education, certifications, and company history
+- Debug logging for chunk selection, reranking, suppression, and final prompt context
+- Local JSON index for embeddings, without requiring a vector database
+
+## System Architecture
 
 ```text
-app/
-  api/answer/route.ts
-  globals.css
-  layout.tsx
-  page.tsx
-components/
-  AnswerCard.tsx
-  InterviewForm.tsx
-  Workspace.tsx
-data/
-  answer_styles.md
-  interview_agent_prompt.md
-  interview_answer_bank.md
-  master_profile.md
-  red_lines.md
-lib/
-  model.ts
-  prompt.ts
-  retrieval.ts
-  types.ts
+User Question + Role Target + Optional Job Description
+                |
+                v
+        Role Routing Layer
+  (embedded / product / ai-product)
+                |
+                v
+      Hybrid Retrieval Pipeline
+  - semantic search over local embeddings
+  - rule-based reranking
+  - metadata boosts / suppression
+                |
+                v
+       Grounded Prompt Assembly
+  - opening hints
+  - suppression hints
+  - validation rules
+  - selected evidence chunks
+                |
+                v
+        OpenAI-Compatible Model
+                |
+                v
+ Structured JSON Answer + Support Note
 ```
 
-## Setup
+## Tech Stack
 
-1. Install dependencies:
+- Next.js 15+ App Router
+- TypeScript
+- Tailwind CSS
+- OpenAI-compatible chat completion API
+- OpenAI embeddings API
+- Local markdown knowledge base
+- Local JSON RAG index
+- Vercel deployment
+
+## How It Works
+
+1. The user submits an interview question, selects an answer mode and role target, and can optionally paste a job description.
+2. The system extracts signals from the job description and routes the request into an appropriate role mode.
+3. A query embedding is generated and compared against a locally stored embedding index of profile chunks.
+4. Top semantic matches are reranked using exact keyword matches, source trust, evidence strength, role tags, domain tags, and suppression rules.
+5. Only the strongest grounded chunks are injected into prompt assembly.
+6. The model receives strict instructions to answer only from supported evidence.
+7. The final response returns:
+   - the answer
+   - experience areas used
+   - a support note describing evidence confidence
+
+## Example Use Case
+
+A user pastes a Senior Product Manager job description for an AI-first startup and asks:
+
+> Why are you a strong fit for this role?
+
+The system will:
+
+- detect AI-product signals such as ownership, experimentation, prototype, and ecosystem
+- retrieve AI-building and product-execution evidence from the profile
+- avoid opening with automotive embedded identity
+- emphasize hands-on product experimentation, grounding, validation, and execution where supported
+
+That produces a more credible answer than a generic AI response or a static personal bio.
+
+## Roadmap
+
+- Improve index rebuilding workflows and content versioning
+- Add richer admin tooling for managing profile evidence
+- Introduce optional answer trace/debug mode in the UI
+- Expand the system from personal clone to reusable multi-profile platform
+- Support additional model providers with the same retrieval core
+
+## Positioning
+
+This project sits at the intersection of:
+
+- AI product design
+- retrieval engineering
+- grounded generation
+- personal knowledge systems
+- defensible interview automation
+
+It is currently framed as a personal digital clone, but the underlying product direction is broader:
+
+**an AI system for high-trust, role-aware, evidence-grounded communication.**
+
+That can extend beyond interviews into:
+
+- executive profile assistants
+- AI-native candidate preparation
+- domain-specific personal copilots
+- trust-sensitive professional narrative systems
+
+## ⚙️ Run Locally
+
+Clone the repository:
+
+```bash
+git clone https://github.com/YOUR_USERNAME/YOUR_REPO.git
+cd YOUR_REPO
+```
+
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-2. Create your environment file:
+Create your environment file:
 
 ```bash
 copy .env.example .env.local
 ```
 
-3. Add your API key to `.env.local`.
+Set the required environment variables in `.env.local`:
 
-4. Start the app:
+```env
+OPENAI_API_KEY=your_api_key_here
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
+Build the local RAG index:
+
+```bash
+npm run build:index
+```
+
+Start the development server:
 
 ```bash
 npm run dev
 ```
 
-5. Open [http://localhost:3000](http://localhost:3000)
+Then open:
 
-## Environment variables
-
-```env
-OPENAI_API_KEY=your_api_key_here
-OPENAI_MODEL=gpt-4.1-mini
-OPENAI_BASE_URL=https://api.openai.com/v1
+```text
+http://localhost:3000
 ```
 
-`OPENAI_BASE_URL` and `OPENAI_MODEL` are optional overrides so the provider can be swapped later without changing the UI or route contract.
+## Future Direction
 
-## Retrieval approach
+The long-term opportunity is not just an interview tool.
 
-The app keeps retrieval simple and inspectable:
+This can evolve into a reusable platform for grounded AI identity systems, where a model can speak credibly on behalf of a person, expert, or domain-specific operator without drifting into hallucination or vague generalities.
 
-1. Load local markdown documents from `data/`
-2. Split them into `##` sections
-3. Score sections by keyword overlap with:
-   - the interview question
-   - the selected role target
-   - optional job-description signals
-4. Prioritize `master_profile.md` for factual and biographical answers
-5. Build the final prompt on the server
+The strongest future direction is a productized framework for:
 
-This keeps the system grounded without adding a vector database or external retrieval service.
+- grounded digital clones
+- role-aware professional copilots
+- evidence-backed narrative generation
+- human-trust AI interfaces
 
-## API contract
+## Author
 
-`POST /api/answer`
-
-Request:
-
-```json
-{
-  "question": "Why are you a fit for this role?",
-  "answerMode": "interview",
-  "roleTarget": "Product Manager",
-  "jobDescription": "Own roadmap prioritization, stakeholder alignment, backlog refinement, and delivery across cross-functional teams."
-}
-```
-
-Response:
-
-```json
-{
-  "answer": "final answer text",
-  "experienceAreasUsed": [
-    "Automotive embedded systems",
-    "Product leadership",
-    "Systems architecture"
-  ],
-  "supportNote": "Tailored to the supplied job description using supported profile evidence."
-}
-```
-
-## Example usage
-
-Question:
-`Why are you a fit for this role?`
-
-Job description signals:
-`roadmap`, `prioritization`, `stakeholder alignment`
-
-Expected emphasis:
-product leadership, backlog clarity, roadmap thinking, and cross-functional alignment without inventing unsupported SaaS or AI claims.
-
-Question:
-`How does your background fit this role?`
-
-Job description signals:
-`AUTOSAR`, `embedded`, `diagnostics`, `architecture`
-
-Expected emphasis:
-system architecture, embedded systems, diagnostics, and automotive platform thinking.
-
-## Notes
-
-- The app answers only from supplied profile documents.
-- No database or authentication is included.
-- The mic button is still a disabled placeholder.
-- Existing debug logging remains in place, with added logs for job-description handling and prompt signals.
+Built by Aamir Shakoor as part of a broader exploration into grounded AI systems, hybrid RAG, and high-trust AI product experiences.

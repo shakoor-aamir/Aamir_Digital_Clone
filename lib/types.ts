@@ -15,6 +15,8 @@ export const ROLE_TARGETS = [
 
 export type AnswerMode = (typeof ANSWER_MODES)[number];
 export type RoleTarget = (typeof ROLE_TARGETS)[number];
+export type RoleMode = "embedded" | "product" | "ai-product" | "general";
+export type EvidenceStrength = "high" | "medium" | "low";
 
 export interface AnswerRequestBody {
   question: string;
@@ -36,10 +38,36 @@ export interface RetrievalSection {
   content: string;
   experienceArea: string;
   score: number;
+  roleTags?: RoleMode[];
+  domainTags?: string[];
+  evidenceStrength?: EvidenceStrength;
+  semanticScore?: number;
 }
 
 export interface RetrievalResult {
   sections: RetrievalSection[];
   experienceAreas: string[];
   jobDescriptionSignals: string[];
+  roleMode?: RoleMode;
+}
+
+export interface RagIndexChunk {
+  chunkId: string;
+  sourceFile: string;
+  sectionTitle: string;
+  content: string;
+  normalizedContent: string;
+  roleTags: RoleMode[];
+  domainTags: string[];
+  evidenceStrength: EvidenceStrength;
+  experienceArea: string;
+  embedding: number[];
+}
+
+export interface RagIndexFile {
+  createdAt: string;
+  embeddingModel: string;
+  filesIndexed: string[];
+  totalChunks: number;
+  chunks: RagIndexChunk[];
 }

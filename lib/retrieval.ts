@@ -1,47 +1,14 @@
-import fs from "node:fs/promises";
-import path from "node:path";
-import { RetrievalResult, RetrievalSection, RoleTarget } from "@/lib/types";
-
-const DATA_FILES = [
-  "master_profile.md",
-  "answer_styles.md",
-  "interview_answer_bank.md",
-  "red_lines.md"
-] as const;
-
-const dataDir = path.join(process.cwd(), "data");
-
-const ROLE_HINTS: Record<RoleTarget, string[]> = {
-  "Product Manager": [
-    "product",
-    "roadmap",
-    "prioritization",
-    "stakeholder",
-    "outcome"
-  ],
-  "Product Owner": [
-    "backlog",
-    "delivery",
-    "requirements",
-    "cross-functional",
-    "execution"
-  ],
-  "System Architect": [
-    "architecture",
-    "system",
-    "interfaces",
-    "integration",
-    "platform"
-  ],
-  "AI Product Manager": ["ai", "ml", "agent", "workflow", "experimentation"],
-  "Embedded/Automotive leader": [
-    "embedded",
-    "automotive",
-    "diagnostics",
-    "autosar",
-    "ecu"
-  ]
-};
+import { createEmbedding } from "@/lib/embeddings";
+import { buildFallbackChunks, loadRagIndex } from "@/lib/rag-index";
+import {
+  detectRoleMode,
+  extractJobDescriptionSignals,
+  neutralizeIdentityForTechnicalRoles,
+  normalizeForMatching,
+  tokenize
+} from "@/lib/rag";
+import { cosineSimilarity } from "@/lib/similarity";
+import { RagIndexChunk, RetrievalResult, RetrievalSection, RoleMode, RoleTarget } from "@/lib/types";
 
 const FACTUAL_KEYWORDS = [
   "company",
@@ -66,854 +33,381 @@ const FACTUAL_KEYWORDS = [
 const FACTUAL_SECTION_TITLES = [
   "career timeline",
   "major companies",
-  "professional summary",
   "education",
   "certifications & continuous learning",
-  "tools & standards",
-  "domain expertise"
+  "tools & standards"
 ] as const;
 
-const PRIORITY_SECTION_TITLES = [
-  "career timeline",
-  "major companies",
-  "domain expertise",
-  "tools & standards",
-  "leadership examples",
-  "certifications & continuous learning",
-  "ai projects & experiments",
-  "education"
-] as const;
-
-const JD_PRIORITY_PHRASES = [
-  "carweaver",
-  "carcom",
-  "elektra",
-  "diagnostics",
-  "volvo",
+const EMBEDDED_TERMS = [
   "requirements",
+  "diagnostics",
   "autosar",
-  "supplier",
-  "steering",
-  "microservices",
-  "java",
-  "react",
-  "docker",
-  "backend",
-  "frontend",
-  "embedded linux",
-  "system safety",
-  "cybersecurity",
-  "fmea",
-  "roadmap",
-  "stakeholder alignment",
-  "stakeholder",
-  "backlog",
-  "prioritization",
-  "product strategy",
-  "product manager",
-  "product owner",
-  "customer",
-  "salesforce",
-  "platform",
-  "delivery",
-  "cross-functional",
-  "market research",
-  "competitive benchmarking",
-  "user interviews",
-  "usage analytics",
-  "feature prioritization",
-  "go-to-market",
-  "end-to-end ownership",
-  "ai",
-  "ai-first",
-  "ai-driven",
-  "machine learning",
-  "llm",
-  "prototype",
-  "prototyping",
-  "experiment",
-  "experimentation",
-  "ideation",
-  "startup",
-  "scale-up",
-  "ecosystem",
-  "concept to launch",
-  "independently lead",
-  "autonomous",
-  "new product opportunities",
-  "ownership",
-  "architecture",
-  "system design",
-  "embedded",
-  "agile"
-] as const;
-
-const EMBEDDED_ROLE_KEYWORDS = [
-  "embedded",
-  "ecu",
-  "autosar",
-  "diagnostics",
-  "carweaver",
-  "carcom",
-  "elektra",
-  "requirements",
-  "system architecture",
-  "supplier",
-  "verification",
-  "canoe",
-  "trace32",
-  "steering"
-] as const;
-
-const PRODUCT_ROLE_KEYWORDS = [
-  "product manager",
-  "product owner",
-  "roadmap",
-  "backlog",
-  "customer",
-  "stakeholder",
-  "platform",
-  "delivery",
-  "product strategy",
-  "cross-functional"
-] as const;
-
-const AI_PRODUCT_ROLE_KEYWORDS = [
-  "ai",
-  "ai-first",
-  "prototype",
-  "prototyping",
-  "experiment",
-  "experimentation",
-  "ideation",
-  "startup",
-  "scale-up",
-  "ecosystem",
-  "concept to launch",
-  "independently lead",
-  "autonomous",
-  "new product opportunities"
-] as const;
-
-const EMBEDDED_FILTER_TERMS = ["ai", "ai-driven", "product strategy"] as const;
-const EMBEDDED_DEPRIORITIZE_TERMS = ["senior product manager"] as const;
-const EMBEDDED_PRIORITY_TERMS = [
-  "requirements",
-  "carweaver",
-  "carcom",
-  "elektra",
-  "systemweaver"
-] as const;
-
-const TECHNICAL_ANCHOR_TERMS = [
-  "embedded systems",
-  "requirements",
-  "requirements engineering",
-  "diagnostics",
   "carweaver",
   "carcom",
   "elektra",
   "systemweaver",
-  "autosar",
-  "ecu",
   "supplier",
-  "verification",
-  "canoe",
-  "trace32",
-  "iso 26262",
-  "aspice",
-  "system architecture"
+  "verification"
 ] as const;
 
-const PRODUCT_ANCHOR_TERMS = [
-  "product manager",
-  "product owner",
-  "product strategy",
+const PRODUCT_TERMS = [
   "roadmap",
   "backlog",
-  "prioritization",
+  "product strategy",
   "stakeholder",
-  "cross-functional",
   "delivery",
-  "kpis",
-  "product lifecycle",
-  "customer",
+  "kpi",
   "platform",
-  "market research",
-  "competitive benchmarking",
-  "user interviews",
-  "usage analytics",
-  "feature prioritization",
-  "go-to-market",
-  "end-to-end ownership"
+  "ownership",
+  "customer"
 ] as const;
 
-const AI_PRODUCT_ANCHOR_TERMS = [
+const AI_PRODUCT_TERMS = [
+  "ownership",
+  "ideation",
+  "experimentation",
+  "concept to launch",
   "ai",
   "ai-driven",
-  "ai product strategy",
-  "ai projects & experiments",
-  "experimentation",
+  "llm-based systems",
+  "llm",
+  "grounded interview agent",
+  "interview agent",
+  "profile-grounded system",
   "prompt design",
+  "retrieval",
   "grounding",
   "evaluation",
-  "product concepts",
   "decision-support",
-  "product strategy",
-  "roadmap",
-  "ownership",
-  "platform",
-  "cross-functional",
-  "leadership",
-  "ideation",
+  "workflow assistants",
+  "ai-enabled workflows",
+  "product concepts",
+  "building prototypes",
+  "prototype",
+  "prototyping",
+  "experiment",
+  "iterate",
+  "iteration",
+  "validate",
   "validation",
-  "concept to delivery"
+  "accuracy",
+  "latency",
+  "cost",
+  "human oversight",
+  "human-in-the-loop",
+  "reliability",
+  "trade-offs",
+  "usable product",
+  "workflows"
 ] as const;
 
-const LOW_LEVEL_TECHNICAL_TOOL_TERMS = [
-  "canoe",
-  "trace32",
+const EMBEDDED_FILTER_TERMS = ["ai", "ai-driven", "product strategy"] as const;
+const PRODUCT_LOW_LEVEL_TERMS = ["canoe", "trace32", "hal", "cortex-m3", "jtag"] as const;
+const AI_PRODUCT_EMBEDDED_PENALTY_TERMS = [
+  "embedded systems engineer",
+  "research associate",
   "low-level debugging",
-  "hal",
   "cortex-m3",
-  "jtag"
+  "jtag",
+  "trace32",
+  "canoe",
+  "automotive embedded systems"
+] as const;
+const PASSIVE_AI_TERMS = [
+  "learning focus",
+  "continuous learning focus",
+  "applied learning",
+  "expanding into ai-driven",
+  "currently expanding into ai-driven"
+] as const;
+const VAGUE_AI_ONLY_TERMS = [
+  "ai-powered product concepts",
+  "llm-based systems",
+  "ai product strategy",
+  "expanding into ai-driven product strategy"
 ] as const;
 
-const GENERIC_SECTION_HINTS = [
-  "professional summary",
-  "preferred markets / roles",
-  "leadership style",
-  "why should we hire you",
-  "closing statement"
-] as const;
-
-const STOPWORDS = new Set([
-  "about",
-  "across",
-  "after",
-  "also",
-  "and",
-  "are",
-  "been",
-  "being",
-  "both",
-  "build",
-  "candidate",
-  "collaborate",
-  "deliver",
-  "each",
-  "from",
-  "have",
-  "into",
-  "looking",
-  "must",
-  "need",
-  "needs",
-  "role",
-  "team",
-  "teams",
-  "that",
-  "their",
-  "them",
-  "they",
-  "this",
-  "will",
-  "with",
-  "work",
-  "working",
-  "would",
-  "years",
-  "your",
-  "experience"
-]);
-
-type RoleMode = "embedded" | "product" | "ai-product" | "general";
-
-interface ScoreResult {
-  score: number;
+interface ScoredChunk {
+  chunk: RagIndexChunk;
+  semanticScore: number;
+  finalScore: number;
   reasons: string[];
-}
-
-interface ScoredSection extends RetrievalSection {
-  reasons: string[];
-}
-
-function tokenize(input: string): string[] {
-  return input
-    .toLowerCase()
-    .replace(/[^a-z0-9\s/+.-]/g, " ")
-    .split(/\s+/)
-    .filter((token) => token.length > 1);
-}
-
-function normalizeForMatching(input: string): string {
-  return input.toLowerCase().replace(/[^a-z0-9\s/+.-]/g, " ");
-}
-
-function normalizeDashVariants(input: string): string {
-  return input.replace(/[–—]/g, "-");
-}
-
-function inferExperienceArea(source: string, title: string, content: string): string {
-  const haystack = `${source} ${title} ${content}`.toLowerCase();
-
-  if (
-    haystack.includes("autosar") ||
-    haystack.includes("diagnostic") ||
-    haystack.includes("embedded")
-  ) {
-    return "Automotive embedded systems";
-  }
-
-  if (
-    haystack.includes("architect") ||
-    haystack.includes("system design") ||
-    haystack.includes("integration")
-  ) {
-    return "Systems architecture";
-  }
-
-  if (
-    haystack.includes("product") ||
-    haystack.includes("roadmap") ||
-    haystack.includes("stakeholder")
-  ) {
-    return "Product leadership";
-  }
-
-  if (
-    haystack.includes("ai") ||
-    haystack.includes("agent") ||
-    haystack.includes("workflow")
-  ) {
-    return "AI product strategy";
-  }
-
-  return "Cross-functional delivery";
 }
 
 function isFactualProfileQuestion(question: string): boolean {
   const normalized = normalizeForMatching(question);
-  const normalizedDashes = normalizeDashVariants(question.toLowerCase());
-  const hasYear = /\b(19|20)\d{2}\b/.test(normalized);
-  const hasYearRange = /\b(19|20)\d{2}\s*-\s*(19|20)\d{2}\b/.test(normalizedDashes);
-  const hasFactualKeyword = FACTUAL_KEYWORDS.some((keyword) =>
-    normalized.includes(keyword)
-  );
-
-  return hasYear || hasYearRange || hasFactualKeyword;
+  return FACTUAL_KEYWORDS.some((keyword) => normalized.includes(keyword));
 }
 
-function extractJobDescriptionSignals(jobDescription?: string): string[] {
-  const normalized = normalizeForMatching(jobDescription || "");
-
-  if (!normalized.trim()) {
-    return [];
-  }
-
-  const signalScores = new Map<string, number>();
-
-  for (const phrase of JD_PRIORITY_PHRASES) {
-    const escapedPhrase = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const matches = normalized.match(new RegExp(`\\b${escapedPhrase}\\b`, "g"));
-
-    if (matches?.length) {
-      signalScores.set(phrase, matches.length * 8);
-    }
-  }
-
-  for (const token of tokenize(normalized)) {
-    if (STOPWORDS.has(token)) {
-      continue;
-    }
-
-    const current = signalScores.get(token) || 0;
-    signalScores.set(token, current + 1);
-  }
-
-  return Array.from(signalScores.entries())
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, 14)
-    .map(([signal]) => signal);
+function countMatches(haystack: string, signals: readonly string[]): string[] {
+  return signals.filter((signal) => haystack.includes(signal));
 }
 
-function countSignalMatches(haystack: string, signals: readonly string[]): number {
-  return signals.filter((signal) => haystack.includes(signal)).length;
-}
-
-function detectRoleMode(
+function buildQueryText(
+  question: string,
   roleTarget: RoleTarget,
-  jobDescriptionSignals: string[],
-  jobDescription?: string
-): {
-  isEmbeddedRole: boolean;
-  isProductRole: boolean;
-  isAIProductRole: boolean;
-  roleMode: RoleMode;
-} {
-  const normalizedRoleTarget = normalizeForMatching(roleTarget);
-  const normalizedJobDescription = normalizeForMatching(jobDescription || "");
-  const embeddedScore =
-    countSignalMatches(normalizedRoleTarget, EMBEDDED_ROLE_KEYWORDS) * 3 +
-    countSignalMatches(normalizedJobDescription, EMBEDDED_ROLE_KEYWORDS) * 2 +
-    countSignalMatches(jobDescriptionSignals.join(" "), EMBEDDED_ROLE_KEYWORDS);
-  const productScore =
-    (roleTarget === "Product Manager" || roleTarget === "Product Owner" ? 5 : 0) +
-    countSignalMatches(normalizedRoleTarget, PRODUCT_ROLE_KEYWORDS) * 3 +
-    countSignalMatches(normalizedJobDescription, PRODUCT_ROLE_KEYWORDS) * 2 +
-    countSignalMatches(jobDescriptionSignals.join(" "), PRODUCT_ROLE_KEYWORDS);
-  const aiProductScore =
-    (roleTarget === "AI Product Manager" ? 6 : 0) +
-    countSignalMatches(normalizedJobDescription, AI_PRODUCT_ROLE_KEYWORDS) * 3 +
-    countSignalMatches(jobDescriptionSignals.join(" "), AI_PRODUCT_ROLE_KEYWORDS) * 2;
-
-  const isAIProductRole = aiProductScore >= 4 && aiProductScore >= embeddedScore;
-  const isEmbeddedRole =
-    !isAIProductRole &&
-    embeddedScore >= 3 &&
-    embeddedScore > productScore;
-  const isProductRole =
-    !isEmbeddedRole &&
-    (isAIProductRole || productScore >= 3 || roleTarget === "Product Manager" || roleTarget === "Product Owner");
-  const roleMode: RoleMode = isAIProductRole
-    ? "ai-product"
-    : isEmbeddedRole
-      ? "embedded"
-      : isProductRole
-        ? "product"
-        : "general";
-
-  return {
-    isEmbeddedRole,
-    isProductRole,
-    isAIProductRole,
-    roleMode
-  };
-}
-
-function neutralizeIdentityForTechnicalRoles(text: string): string {
-  return text
-    .replace(/Senior Product Manager/g, "automotive embedded systems professional")
-    .replace(/Product Manager/g, "embedded systems professional")
-    .replace(/Product Owner/g, "engineering-focused delivery role")
-    .replace(/\bleader\b/g, "professional");
-}
-
-function splitSections(source: string, markdown: string): RetrievalSection[] {
-  const matches = Array.from(
-    markdown.matchAll(/##\s+([^\n]+)\n([\s\S]*?)(?=\n##\s+|\s*$)/g)
-  );
-
-  return matches.map((match, index) => {
-    const heading = match[1]?.trim() || `${source}-${index + 1}`;
-    const content = match[2]?.trim() || "";
-    const experienceArea = inferExperienceArea(source, heading, content);
-
-    return {
-      id: `${source}-${index + 1}`,
-      title: heading,
-      source,
-      content,
-      experienceArea,
-      score: 0
-    };
-  });
-}
-
-async function loadSections(): Promise<RetrievalSection[]> {
-  const docs = await Promise.all(
-    DATA_FILES.map(async (fileName) => {
-      const fullPath = path.join(dataDir, fileName);
-      const exists = await fs
-        .access(fullPath)
-        .then(() => true)
-        .catch(() => false);
-      console.log("FILE CHECK:", fullPath, exists);
-      const content = await fs.readFile(fullPath, "utf8");
-      console.log("FILE LENGTH:", fullPath, content.length);
-      return splitSections(fileName, content);
-    })
-  );
-
-  return docs.flat();
-}
-
-function addReason(reasons: string[], label: string, points: number) {
-  reasons.push(`${label} (+${points})`);
-}
-
-function addPenalty(reasons: string[], label: string, points: number) {
-  reasons.push(`${label} (-${points})`);
-}
-
-function countExactKeywordMatches(haystackTokens: Set<string>, tokens: string[]): number {
-  let count = 0;
-
-  for (const token of tokens) {
-    if (haystackTokens.has(token)) {
-      count += 1;
-    }
-  }
-
-  return count;
-}
-
-function countExactPhraseMatches(haystack: string, phrases: string[]): string[] {
-  return phrases.filter((phrase) => phrase.includes(" ") && haystack.includes(phrase));
-}
-
-function buildQuestionPhrases(question: string): string[] {
-  const normalized = normalizeForMatching(question).trim();
-
-  if (!normalized) {
-    return [];
-  }
-
-  const phrases = [normalized];
-  const keywordPhrases = FACTUAL_KEYWORDS.filter((keyword) => normalized.includes(keyword));
-
-  for (const phrase of keywordPhrases) {
-    phrases.push(phrase);
-  }
-
-  return Array.from(new Set(phrases));
-}
-
-function scoreSection(
-  section: RetrievalSection,
-  queryTokens: string[],
-  questionPhrases: string[],
-  roleTarget: RoleTarget,
-  factualQuestion: boolean,
   jobDescriptionSignals: string[],
   roleMode: RoleMode
-): ScoreResult {
-  const sectionText = `${section.title} ${section.content}`;
-  const normalizedSectionText = normalizeForMatching(sectionText);
-  const normalizedTitle = section.title.toLowerCase();
-  const tokenSet = new Set(tokenize(sectionText));
+): string {
+  return [
+    `Question: ${question}`,
+    `Role target: ${roleTarget}`,
+    `Route mode: ${roleMode}`,
+    `Job description signals: ${jobDescriptionSignals.join(", ")}`
+  ].join("\n");
+}
+
+function scoreChunk(
+  chunk: RagIndexChunk,
+  semanticScore: number,
+  question: string,
+  roleTarget: RoleTarget,
+  roleMode: RoleMode,
+  factualQuestion: boolean,
+  jobDescriptionSignals: string[]
+): ScoredChunk {
   const reasons: string[] = [];
-  let score = 0;
+  const normalizedChunkText = chunk.normalizedContent;
+  const normalizedSectionTitle = chunk.sectionTitle.toLowerCase();
+  const queryTokens = tokenize(`${question} ${roleTarget}`);
+  const chunkTokens = new Set(tokenize(`${chunk.sectionTitle} ${chunk.content}`));
+  let finalScore = semanticScore * 30;
+  reasons.push(`semantic score (+${(semanticScore * 30).toFixed(2)})`);
 
-  const questionKeywordMatches = countExactKeywordMatches(tokenSet, queryTokens);
-  if (questionKeywordMatches > 0) {
-    const points = questionKeywordMatches * 3;
-    score += points;
-    addReason(reasons, `exact question keywords x${questionKeywordMatches}`, points);
+  const exactKeywordMatches = queryTokens.filter((token) => chunkTokens.has(token));
+  if (exactKeywordMatches.length > 0) {
+    const points = exactKeywordMatches.length * 3;
+    finalScore += points;
+    reasons.push(`exact keyword matches x${exactKeywordMatches.length} (+${points})`);
   }
 
-  const matchedQuestionPhrases = countExactPhraseMatches(
-    normalizedSectionText,
-    questionPhrases
+  const exactJobDescriptionMatches = countMatches(
+    normalizedChunkText,
+    jobDescriptionSignals
   );
-  if (matchedQuestionPhrases.length > 0) {
-    const points = matchedQuestionPhrases.length * 10;
-    score += points;
-    matchedQuestionPhrases.forEach((phrase) =>
-      addReason(reasons, `exact question phrase: ${phrase}`, 10)
-    );
+  if (exactJobDescriptionMatches.length > 0) {
+    const points = exactJobDescriptionMatches.length * 5;
+    finalScore += points;
+    reasons.push(`exact JD matches x${exactJobDescriptionMatches.length} (+${points})`);
   }
 
-  const matchedRoleHints = ROLE_HINTS[roleTarget].filter((hint) => tokenSet.has(hint));
-  if (matchedRoleHints.length > 0) {
-    const points = matchedRoleHints.length * 2;
-    score += points;
-    addReason(reasons, `role-target hints x${matchedRoleHints.length}`, points);
+  if (chunk.sourceFile === "master_profile.md") {
+    finalScore += 8;
+    reasons.push("source priority: master_profile (+8)");
+  } else if (chunk.sourceFile === "answers_library.md") {
+    finalScore += 4;
+    reasons.push("source priority: answers_library (+4)");
+  } else if (chunk.sourceFile === "interview_answer_bank.md") {
+    finalScore += 3;
+    reasons.push("source priority: answer_bank (+3)");
+  } else if (chunk.sourceFile === "answer_styles.md" || chunk.sourceFile === "red_lines.md") {
+    finalScore -= 3;
+    reasons.push("low-priority source (-3)");
   }
 
-  if (section.source === "master_profile.md") {
-    score += 8;
-    addReason(reasons, "source priority: master_profile", 8);
-  } else if (section.source === "interview_answer_bank.md") {
-    score += 3;
-    addReason(reasons, "source priority: answer_bank", 3);
-  } else if (section.source === "answer_styles.md") {
-    score -= 4;
-    addPenalty(reasons, "low-priority source: answer_styles", 4);
-  } else if (section.source === "red_lines.md") {
-    score -= 3;
-    addPenalty(reasons, "low-priority source: red_lines", 3);
-  }
-
-  if (
-    PRIORITY_SECTION_TITLES.includes(
-      normalizedTitle as (typeof PRIORITY_SECTION_TITLES)[number]
-    )
-  ) {
-    score += 6;
-    addReason(reasons, `section priority: ${normalizedTitle}`, 6);
+  if (chunk.evidenceStrength === "high") {
+    finalScore += 4;
+    reasons.push("evidence strength: high (+4)");
+  } else if (chunk.evidenceStrength === "medium") {
+    finalScore += 2;
+    reasons.push("evidence strength: medium (+2)");
+  } else {
+    finalScore -= 2;
+    reasons.push("evidence strength: low (-2)");
   }
 
   if (
     FACTUAL_SECTION_TITLES.includes(
-      normalizedTitle as (typeof FACTUAL_SECTION_TITLES)[number]
+      normalizedSectionTitle as (typeof FACTUAL_SECTION_TITLES)[number]
     )
   ) {
-    score += 4;
-    addReason(reasons, `factual section: ${normalizedTitle}`, 4);
+    finalScore += 4;
+    reasons.push(`factual section: ${normalizedSectionTitle} (+4)`);
   }
 
-  if (section.source === "master_profile.md") {
-    score += 3;
-    addReason(reasons, "label signal: [Source: master_profile.md]", 3);
-    score += 2;
-    addReason(reasons, "label signal: [Section: ...]", 2);
-    score += 2;
-    addReason(reasons, "label signal: [Experience area: ...]", 2);
+  if (factualQuestion && chunk.sourceFile === "master_profile.md") {
+    finalScore += 10;
+    reasons.push("factual question boost: master_profile (+10)");
   }
 
-  if (factualQuestion) {
-    if (section.source === "master_profile.md") {
-      score += 14;
-      addReason(reasons, "factual question boost: master_profile", 14);
-    }
-
-    if (
-      normalizedTitle.includes("career timeline") ||
-      normalizedTitle.includes("major companies") ||
-      normalizedTitle.includes("education") ||
-      normalizedTitle.includes("certifications")
-    ) {
-      score += 12;
-      addReason(reasons, `factual question boost: ${normalizedTitle}`, 12);
-    }
-
-    if (
-      section.source === "interview_answer_bank.md" &&
-      !normalizedTitle.includes("tell me about yourself")
-    ) {
-      score -= 5;
-      addPenalty(reasons, "factual question penalty: generic answer bank", 5);
-    }
+  if (chunk.roleTags.includes(roleMode)) {
+    finalScore += 6;
+    reasons.push(`role-tag match: ${roleMode} (+6)`);
   }
 
-  let jdExactMatchCount = 0;
-  if (jobDescriptionSignals.length > 0) {
-    for (const signal of jobDescriptionSignals) {
-      if (signal.includes(" ")) {
-        if (normalizedSectionText.includes(signal)) {
-          jdExactMatchCount += 1;
-          score += 9;
-          addReason(reasons, `exact JD phrase: ${signal}`, 9);
-        }
-      } else if (tokenSet.has(signal)) {
-        jdExactMatchCount += 1;
-        score += 7;
-        addReason(reasons, `exact JD keyword: ${signal}`, 7);
-      }
-    }
-
-    if (section.source === "master_profile.md" && jdExactMatchCount > 0) {
-      const points = jdExactMatchCount * 2;
-      score += points;
-      addReason(reasons, "JD match on trusted source", points);
-    }
+  const domainMatches = chunk.domainTags.filter((tag) => jobDescriptionSignals.includes(tag));
+  if (domainMatches.length > 0) {
+    const points = domainMatches.length * 3;
+    finalScore += points;
+    reasons.push(`domain-tag matches x${domainMatches.length} (+${points})`);
   }
 
   if (roleMode === "embedded") {
-    let technicalAnchorMatches = 0;
-    for (const term of TECHNICAL_ANCHOR_TERMS) {
-      if (normalizedSectionText.includes(term)) {
-        technicalAnchorMatches += 1;
-        score += 5;
-        addReason(reasons, `technical anchor: ${term}`, 5);
-      }
+    const embeddedMatches = countMatches(normalizedChunkText, EMBEDDED_TERMS);
+    if (embeddedMatches.length > 0) {
+      const points = embeddedMatches.length * 5;
+      finalScore += points;
+      reasons.push(`embedded anchors x${embeddedMatches.length} (+${points})`);
     }
 
-    if (technicalAnchorMatches > 1) {
-      const stackedAnchorBonus = technicalAnchorMatches * 2;
-      score += stackedAnchorBonus;
-      addReason(reasons, "technical anchor stacking", stackedAnchorBonus);
-    }
-
-    for (const term of [
-      "product manager",
-      "product strategy",
-      "roadmap",
-      "ai",
-      "ai-driven",
-      "leadership"
-    ]) {
-      if (normalizedSectionText.includes(term)) {
-        const penalty = term === "ai" || term === "ai-driven" ? 7 : 4;
-        score -= penalty;
-        addPenalty(reasons, `embedded-role identity penalty: ${term}`, penalty);
-      }
+    if (EMBEDDED_FILTER_TERMS.some((term) => normalizedChunkText.includes(term))) {
+      finalScore -= 8;
+      reasons.push("embedded suppression penalty (-8)");
     }
   }
 
   if (roleMode === "product" || roleMode === "ai-product") {
-    let productAnchorMatches = 0;
-    for (const term of PRODUCT_ANCHOR_TERMS) {
-      if (normalizedSectionText.includes(term)) {
-        productAnchorMatches += 1;
-        const points = term === "product manager" || term === "product owner" ? 6 : 5;
-        score += points;
-        addReason(reasons, `product anchor: ${term}`, points);
-      }
+    const productMatches = countMatches(normalizedChunkText, PRODUCT_TERMS);
+    if (productMatches.length > 0) {
+      const points = productMatches.length * 5;
+      finalScore += points;
+      reasons.push(`product anchors x${productMatches.length} (+${points})`);
     }
 
-    if (productAnchorMatches > 1) {
-      const stackedProductBonus = productAnchorMatches * 2;
-      score += stackedProductBonus;
-      addReason(reasons, "product anchor stacking", stackedProductBonus);
-    }
-
-    for (const term of LOW_LEVEL_TECHNICAL_TOOL_TERMS) {
-      if (normalizedSectionText.includes(term)) {
-        score -= 3;
-        addPenalty(reasons, `product-role low-level tool penalty: ${term}`, 3);
-      }
+    const lowLevelTechnicalMatches = countMatches(normalizedChunkText, PRODUCT_LOW_LEVEL_TERMS);
+    if (lowLevelTechnicalMatches.length > 0) {
+      const points = lowLevelTechnicalMatches.length * 2;
+      finalScore -= points;
+      reasons.push(`low-level technical penalty (-${points})`);
     }
   }
 
   if (roleMode === "ai-product") {
-    let aiProductAnchorMatches = 0;
-    for (const term of AI_PRODUCT_ANCHOR_TERMS) {
-      if (normalizedSectionText.includes(term)) {
-        aiProductAnchorMatches += 1;
-        score += 6;
-        addReason(reasons, `ai-product anchor: ${term}`, 6);
-      }
+    const aiMatches = countMatches(normalizedChunkText, AI_PRODUCT_TERMS);
+    if (aiMatches.length > 0) {
+      const points = aiMatches.length * 7;
+      finalScore += points;
+      reasons.push(`ai-product anchors x${aiMatches.length} (+${points})`);
     }
 
-    if (aiProductAnchorMatches > 1) {
-      const stackedAiBonus = aiProductAnchorMatches * 2;
-      score += stackedAiBonus;
-      addReason(reasons, "ai-product anchor stacking", stackedAiBonus);
+    const concreteAiEvidenceMatches = countMatches(normalizedChunkText, [
+      "grounded interview agent",
+      "interview agent",
+      "profile-grounded system",
+      "retrieval",
+      "grounding",
+      "evaluation",
+      "prompt design",
+      "decision-support",
+      "workflow assistants",
+      "prototype",
+      "prototyping",
+      "experiment",
+      "experimentation",
+      "validate",
+      "validation",
+      "iterate",
+      "iteration",
+      "human-in-the-loop",
+      "accuracy",
+      "latency",
+      "cost",
+      "reliability",
+      "trade-offs"
+    ]);
+    if (concreteAiEvidenceMatches.length > 0) {
+      const points = concreteAiEvidenceMatches.length * 4;
+      finalScore += points;
+      reasons.push(`ai-product concrete evidence x${concreteAiEvidenceMatches.length} (+${points})`);
     }
 
-    for (const term of [
-      "low-level debugging",
-      "cortex-m3",
-      "jtag",
-      "embedded systems engineer",
-      "research associate"
-    ]) {
-      if (normalizedSectionText.includes(term)) {
-        score -= 4;
-        addPenalty(reasons, `ai-product opening penalty: ${term}`, 4);
-      }
+    const embeddedPenaltyMatches = countMatches(
+      normalizedChunkText,
+      AI_PRODUCT_EMBEDDED_PENALTY_TERMS
+    );
+    if (embeddedPenaltyMatches.length > 0) {
+      const points = embeddedPenaltyMatches.length * 3;
+      finalScore -= points;
+      reasons.push(`ai-product embedded-first penalty (-${points})`);
+    }
+
+    const passiveAiMatches = countMatches(normalizedChunkText, PASSIVE_AI_TERMS);
+    if (passiveAiMatches.length > 0 && aiMatches.length === 0) {
+      const points = passiveAiMatches.length * 4;
+      finalScore -= points;
+      reasons.push(`ai-product passive-ai penalty (-${points})`);
+    }
+
+    if (
+      normalizedChunkText.includes("interview assistant") ||
+      normalizedChunkText.includes("retrieval system") ||
+      normalizedChunkText.includes("grounded strictly") ||
+      normalizedChunkText.includes("llm-based systems")
+    ) {
+      finalScore += 8;
+      reasons.push("ai-product concrete building evidence (+8)");
+    }
+
+    const vagueAiMatches = countMatches(normalizedChunkText, VAGUE_AI_ONLY_TERMS);
+    if (vagueAiMatches.length > 0 && concreteAiEvidenceMatches.length === 0) {
+      const points = vagueAiMatches.length * 3;
+      finalScore -= points;
+      reasons.push(`ai-product vague-ai penalty (-${points})`);
     }
   }
 
-  const genericPenaltyApplies =
-    GENERIC_SECTION_HINTS.some((hint) => normalizedTitle.includes(hint)) &&
-    (questionKeywordMatches > 0 || jdExactMatchCount > 0 || factualQuestion);
-  if (genericPenaltyApplies) {
-    score -= 6;
-    addPenalty(reasons, "generic summary penalty", 6);
-  }
-
-  if (roleMode !== "ai-product") {
-    const aiPenaltyApplies =
-      !jobDescriptionSignals.some((signal) =>
-        ["ai", "llm", "machine learning", "experimentation"].includes(signal)
-      ) &&
-      (normalizedTitle.includes("ai projects") || normalizedSectionText.includes("llm")) &&
-      jobDescriptionSignals.length > 0;
-    if (aiPenaltyApplies) {
-      score -= 5;
-      addPenalty(reasons, "AI mismatch penalty", 5);
-    }
+  if (
+    normalizedSectionTitle.includes("professional summary") &&
+    (exactJobDescriptionMatches.length > 0 || exactKeywordMatches.length > 0)
+  ) {
+    finalScore -= 5;
+    reasons.push("generic summary penalty (-5)");
   }
 
   return {
-    score,
+    chunk,
+    semanticScore,
+    finalScore,
     reasons
   };
 }
 
-function applyRoleFiltering(sections: ScoredSection[], roleMode: RoleMode): {
-  filtered: ScoredSection[];
-  filteredOut: ScoredSection[];
-  suppressedReasons: string[];
+function applyRoleFiltering(scoredChunks: ScoredChunk[], roleMode: RoleMode): {
+  kept: ScoredChunk[];
+  suppressed: ScoredChunk[];
 } {
-  const filteredOut: ScoredSection[] = [];
-  const suppressedReasons: string[] = [];
+  if (roleMode !== "embedded") {
+    return {
+      kept: scoredChunks,
+      suppressed: []
+    };
+  }
 
-  const filtered = sections
-    .filter((section) => {
-      const normalizedSectionText = normalizeForMatching(
-        `${section.title} ${section.content}`
-      );
+  const kept: ScoredChunk[] = [];
+  const suppressed: ScoredChunk[] = [];
 
-      if (roleMode === "embedded") {
-        const shouldFilterOut = EMBEDDED_FILTER_TERMS.some((term) =>
-          normalizedSectionText.includes(term)
-        );
-
-        if (shouldFilterOut) {
-          const reason = "embedded-role filter: removed AI/product-strategy chunk";
-          section.reasons.push(reason);
-          filteredOut.push(section);
-          suppressedReasons.push(reason);
-          return false;
-        }
-      }
-
-      return true;
-    })
-    .map((section) => {
-      const normalizedSectionText = normalizeForMatching(
-        `${section.title} ${section.content}`
-      );
-
-      if (roleMode === "embedded") {
-        for (const term of EMBEDDED_DEPRIORITIZE_TERMS) {
-          if (normalizedSectionText.includes(term)) {
-            section.score -= 8;
-            section.reasons.push(`embedded-role de-prioritize: ${term} (-8)`);
-            suppressedReasons.push(`embedded-role de-prioritize: ${term}`);
-          }
-        }
-
-        let priorityMatches = 0;
-        for (const term of EMBEDDED_PRIORITY_TERMS) {
-          if (normalizedSectionText.includes(term)) {
-            priorityMatches += 1;
-            section.score += 8;
-            section.reasons.push(`embedded-role priority: ${term} (+8)`);
-          }
-        }
-
-        if (priorityMatches > 1) {
-          const stackedBonus = priorityMatches * 2;
-          section.score += stackedBonus;
-          section.reasons.push(`embedded-role stacked priority bonus (+${stackedBonus})`);
-        }
-      }
-
-      if (roleMode === "product") {
-        if (
-          normalizedSectionText.includes("embedded systems engineer") ||
-          normalizedSectionText.includes("research associate")
-        ) {
-          section.score -= 5;
-          section.reasons.push("product-role suppression: early embedded opening (-5)");
-          suppressedReasons.push("product-role suppression: early embedded opening");
-        }
-      }
-
-      if (roleMode === "ai-product") {
-        if (
-          normalizedSectionText.includes("embedded systems engineer") ||
-          normalizedSectionText.includes("research associate")
-        ) {
-          section.score -= 6;
-          section.reasons.push("ai-product suppression: embedded-first opening (-6)");
-          suppressedReasons.push("ai-product suppression: embedded-first opening");
-        }
-      }
-
-      return section;
-    })
-    .sort((a, b) => b.score - a.score);
+  scoredChunks.forEach((scoredChunk) => {
+    const normalizedChunkText = scoredChunk.chunk.normalizedContent;
+    if (EMBEDDED_FILTER_TERMS.some((term) => normalizedChunkText.includes(term))) {
+      suppressed.push(scoredChunk);
+    } else {
+      kept.push(scoredChunk);
+    }
+  });
 
   return {
-    filtered,
-    filteredOut,
-    suppressedReasons
+    kept,
+    suppressed
+  };
+}
+
+function toRetrievalSection(scoredChunk: ScoredChunk, roleMode: RoleMode): RetrievalSection {
+  const content =
+    roleMode === "embedded"
+      ? neutralizeIdentityForTechnicalRoles(scoredChunk.chunk.content)
+      : scoredChunk.chunk.content;
+
+  return {
+    id: scoredChunk.chunk.chunkId,
+    title: scoredChunk.chunk.sectionTitle,
+    source: scoredChunk.chunk.sourceFile,
+    content,
+    experienceArea: scoredChunk.chunk.experienceArea,
+    score: scoredChunk.finalScore,
+    roleTags: scoredChunk.chunk.roleTags,
+    domainTags: scoredChunk.chunk.domainTags,
+    evidenceStrength: scoredChunk.chunk.evidenceStrength,
+    semanticScore: scoredChunk.semanticScore
   };
 }
 
@@ -923,165 +417,109 @@ export async function retrieveRelevantContext(
   jobDescription?: string
 ): Promise<RetrievalResult> {
   console.log("USER QUESTION:", question);
-  const factualQuestion = isFactualProfileQuestion(question);
-  const jobDescriptionProvided = Boolean(jobDescription?.trim());
   const jobDescriptionSignals = extractJobDescriptionSignals(jobDescription);
   const routing = detectRoleMode(roleTarget, jobDescriptionSignals, jobDescription);
-  console.log("FACTUAL PROFILE QUESTION:", factualQuestion);
-  console.log("JOB DESCRIPTION PROVIDED:", jobDescriptionProvided);
-  console.log("JOB DESCRIPTION SIGNALS:", jobDescriptionSignals);
+  const factualQuestion = isFactualProfileQuestion(question);
+
   console.log("ROLE ROUTING:");
   console.log("- isEmbeddedRole:", routing.isEmbeddedRole);
   console.log("- isProductRole:", routing.isProductRole);
   console.log("- isAIProductRole:", routing.isAIProductRole);
+  console.log("- aiProductReasons:", routing.aiProductReasons);
   console.log("ROLE TYPE:", routing.roleMode);
+  console.log("JOB DESCRIPTION SIGNALS:", jobDescriptionSignals);
 
-  const queryTokens = tokenize(`${question} ${roleTarget}`);
-  const questionPhrases = buildQuestionPhrases(question);
-  const allSections = await loadSections();
-
-  const baselineRankedIds = allSections
-    .map((section) => {
-      const scored = scoreSection(
-        section,
-        queryTokens,
-        questionPhrases,
-        roleTarget,
-        factualQuestion,
-        [],
-        routing.roleMode
-      );
-
-      return {
-        ...section,
-        score: scored.score,
-        reasons: scored.reasons
-      };
-    })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, factualQuestion ? 3 : 6)
-    .map((section) => section.id)
-    .join("|");
-
-  const ranked: ScoredSection[] = allSections
-    .map((section) => {
-      const scored = scoreSection(
-        section,
-        queryTokens,
-        questionPhrases,
-        roleTarget,
-        factualQuestion,
-        jobDescriptionSignals,
-        routing.roleMode
-      );
-
-      return {
-        ...section,
-        score: scored.score,
-        reasons: scored.reasons
-      };
-    })
-    .sort((a, b) => b.score - a.score);
-
-  const { filtered, filteredOut, suppressedReasons } = applyRoleFiltering(
-    ranked,
+  const index = await loadRagIndex();
+  const chunks = index?.chunks || (await buildFallbackChunks());
+  const queryText = buildQueryText(
+    question,
+    roleTarget,
+    jobDescriptionSignals,
     routing.roleMode
   );
+  const queryEmbedding = index ? await createEmbedding(queryText) : [];
+  const semanticCandidates = chunks
+    .map((chunk) => ({
+      chunk,
+      semanticScore:
+        index && chunk.embedding.length > 0
+          ? cosineSimilarity(queryEmbedding, chunk.embedding)
+          : 0
+    }))
+    .sort((a, b) => b.semanticScore - a.semanticScore)
+    .slice(0, index ? 12 : 16);
 
-  const selected = filtered
-    .filter((section, index) => section.score > 0 || index < 5)
-    .slice(0, factualQuestion ? 3 : 6);
+  const reranked = semanticCandidates
+    .map(({ chunk, semanticScore }) =>
+      scoreChunk(
+        chunk,
+        semanticScore,
+        question,
+        roleTarget,
+        routing.roleMode,
+        factualQuestion,
+        jobDescriptionSignals
+      )
+    )
+    .sort((a, b) => b.finalScore - a.finalScore);
 
-  const promptReadySections = selected.map((section, index) => {
-    if (routing.roleMode !== "embedded") {
-      return section;
-    }
+  const { kept, suppressed } = applyRoleFiltering(reranked, routing.roleMode);
+  const selected = kept.slice(0, factualQuestion ? 4 : 6);
 
-    const neutralizedContent = neutralizeIdentityForTechnicalRoles(section.content);
-    const changed = neutralizedContent !== section.content;
-
-    if (changed) {
-      console.log(
-        `IDENTITY NEUTRALIZATION BEFORE [${index}]:`,
-        section.content.slice(0, 200)
-      );
-      console.log(
-        `IDENTITY NEUTRALIZATION AFTER [${index}]:`,
-        neutralizedContent.slice(0, 200)
-      );
-    }
-
-    return {
-      ...section,
-      content: neutralizedContent
-    };
-  });
-
-  const rankingChangedBecauseOfJobDescription =
-    jobDescriptionSignals.length > 0 &&
-    baselineRankedIds !== promptReadySections.map((section) => section.id).join("|");
-
-  const experienceAreas = Array.from(
-    new Set(promptReadySections.map((section) => section.experienceArea))
-  );
-
+  console.log("HYBRID RAG DEBUG");
+  console.log("- routeMode:", routing.roleMode);
   console.log(
-    "RETRIEVAL RANKING CHANGED BECAUSE OF JD:",
-    rankingChangedBecauseOfJobDescription
+    "- semanticTop:",
+    semanticCandidates.slice(0, 6).map((candidate) => ({
+      id: candidate.chunk.chunkId,
+      section: candidate.chunk.sectionTitle,
+      score: Number(candidate.semanticScore.toFixed(4))
+    }))
   );
-  console.log("IDENTITY NEUTRALIZATION APPLIED:", routing.roleMode === "embedded");
-  console.log("FILTERED OUT CHUNKS:");
-  filteredOut.forEach((section, index) => {
-    console.log(
-      `Filtered ${index}: ${section.source} | ${section.title} | Score: ${section.score}`
-    );
-  });
-  console.log("FILTER SUMMARY:");
-  console.log("- suppressed chunks count:", filteredOut.length);
   console.log(
-    "- top suppressed reasons:",
-    Array.from(new Set(suppressedReasons)).slice(0, 5)
+    "- rerankedTop:",
+    reranked.slice(0, 6).map((candidate) => ({
+      id: candidate.chunk.chunkId,
+      section: candidate.chunk.sectionTitle,
+      score: Number(candidate.finalScore.toFixed(2))
+    }))
   );
-  console.log("- final selected chunks count:", promptReadySections.length);
-  console.log("BOOSTED CHUNKS:");
-  promptReadySections.forEach((section, index) => {
-    const boostedReasons = section.reasons.filter(
-      (reason) =>
-        reason.includes("technical anchor") ||
-        reason.includes("product anchor") ||
-        reason.includes("ai-product anchor") ||
-        reason.includes("exact JD") ||
-        reason.includes("embedded-role priority") ||
-        reason.includes("source priority")
-    );
-    if (boostedReasons.length > 0) {
-      console.log(`Boosted ${index}: ${section.source} | ${section.title}`);
-      boostedReasons.slice(0, 6).forEach((reason) => {
-        console.log(`- ${reason}`);
-      });
-    }
-  });
-  console.log("FINAL SELECTED CHUNKS:");
-  promptReadySections.forEach((section, index) => {
-    console.log(`Final ${index}: ${section.source} | ${section.title} | Score: ${section.score}`);
-  });
-  console.log("RETRIEVED CHUNKS COUNT:", promptReadySections.length);
-  promptReadySections.forEach((section, index) => {
-    console.log(`CHUNK ${index}:`, section.content.slice(0, 200));
+  console.log(
+    "- suppressed:",
+    suppressed.map((candidate) => ({
+      id: candidate.chunk.chunkId,
+      section: candidate.chunk.sectionTitle
+    }))
+  );
+  console.log(
+    "- finalChunks:",
+    selected.map((candidate) => ({
+      id: candidate.chunk.chunkId,
+      section: candidate.chunk.sectionTitle
+    }))
+  );
+
+  selected.forEach((candidate, index) => {
     console.log("RETRIEVAL SCORE:");
     console.log(`Chunk ${index}`);
-    console.log(`Source: ${section.source}`);
-    console.log(`Section: ${section.title}`);
-    console.log(`Score: ${section.score}`);
+    console.log(`Source: ${candidate.chunk.sourceFile}`);
+    console.log(`Section: ${candidate.chunk.sectionTitle}`);
+    console.log(`Score: ${candidate.finalScore.toFixed(2)}`);
     console.log("Reasons:");
-    section.reasons.slice(0, 8).forEach((reason) => {
+    candidate.reasons.slice(0, 8).forEach((reason) => {
       console.log(`- ${reason}`);
     });
   });
 
+  const sections = selected.map((candidate) =>
+    toRetrievalSection(candidate, routing.roleMode)
+  );
+  const experienceAreas = Array.from(new Set(sections.map((section) => section.experienceArea)));
+
   return {
-    sections: promptReadySections.map(({ reasons: _reasons, ...section }) => section),
+    sections,
     experienceAreas,
-    jobDescriptionSignals
+    jobDescriptionSignals,
+    roleMode: routing.roleMode
   };
 }

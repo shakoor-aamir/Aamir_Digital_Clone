@@ -1,57 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { AnswerMode, RetrievalSection, RoleTarget } from "@/lib/types";
+import { detectRoleMode } from "@/lib/rag";
 
 const dataDir = path.join(process.cwd(), "data");
-
-const EMBEDDED_ROLE_KEYWORDS = [
-  "embedded",
-  "ecu",
-  "autosar",
-  "diagnostics",
-  "carweaver",
-  "carcom",
-  "elektra",
-  "requirements",
-  "system architecture",
-  "supplier",
-  "verification",
-  "canoe",
-  "trace32",
-  "steering"
-];
-
-const PRODUCT_ROLE_KEYWORDS = [
-  "product manager",
-  "product owner",
-  "roadmap",
-  "backlog",
-  "customer",
-  "stakeholder",
-  "platform",
-  "delivery",
-  "product strategy",
-  "cross-functional"
-];
-
-const AI_PRODUCT_ROLE_KEYWORDS = [
-  "ai",
-  "ai-first",
-  "prototype",
-  "prototyping",
-  "experiment",
-  "experimentation",
-  "ideation",
-  "startup",
-  "scale-up",
-  "ecosystem",
-  "concept to launch",
-  "independently lead",
-  "autonomous",
-  "new product opportunities"
-];
-
-type RoleMode = "embedded" | "product" | "ai-product" | "general";
 
 async function readDataFile(fileName: string): Promise<string> {
   const fullPath = path.join(dataDir, fileName);
@@ -63,46 +15,6 @@ async function readDataFile(fileName: string): Promise<string> {
   const content = await fs.readFile(fullPath, "utf8");
   console.log("FILE LENGTH:", fullPath, content.length);
   return content;
-}
-
-function normalizeForMatching(input: string): string {
-  return input.toLowerCase().replace(/[^a-z0-9\s/+.-]/g, " ");
-}
-
-function countSignalMatches(haystack: string, signals: readonly string[]): number {
-  return signals.filter((signal) => haystack.includes(signal)).length;
-}
-
-function detectPromptRoleMode(
-  roleTarget: RoleTarget,
-  jobDescriptionSignals: string[]
-): RoleMode {
-  const normalizedRoleTarget = normalizeForMatching(roleTarget);
-  const signalsText = jobDescriptionSignals.join(" ");
-  const embeddedScore =
-    countSignalMatches(normalizedRoleTarget, EMBEDDED_ROLE_KEYWORDS) * 3 +
-    countSignalMatches(signalsText, EMBEDDED_ROLE_KEYWORDS) * 2;
-  const productScore =
-    (roleTarget === "Product Manager" || roleTarget === "Product Owner" ? 5 : 0) +
-    countSignalMatches(normalizedRoleTarget, PRODUCT_ROLE_KEYWORDS) * 3 +
-    countSignalMatches(signalsText, PRODUCT_ROLE_KEYWORDS) * 2;
-  const aiProductScore =
-    (roleTarget === "AI Product Manager" ? 6 : 0) +
-    countSignalMatches(signalsText, AI_PRODUCT_ROLE_KEYWORDS) * 3;
-
-  if (aiProductScore >= 4 && aiProductScore >= embeddedScore) {
-    return "ai-product";
-  }
-
-  if (embeddedScore >= 3 && embeddedScore > productScore) {
-    return "embedded";
-  }
-
-  if (productScore >= 3 || roleTarget === "Product Manager" || roleTarget === "Product Owner") {
-    return "product";
-  }
-
-  return "general";
 }
 
 export async function buildSystemPrompt(): Promise<string> {
@@ -134,6 +46,8 @@ function formatSections(sections: RetrievalSection[]): string {
       [
         `[Source: ${section.source}]`,
         `[Section: ${section.title}]`,
+        `[Role tags: ${(section.roleTags || []).join(", ") || "none"}]`,
+        `[Domain tags: ${(section.domainTags || []).join(", ") || "none"}]`,
         `[Experience area: ${section.experienceArea}]`,
         section.content
       ].join("\n")
@@ -156,7 +70,7 @@ export function buildUserPrompt({
   jobDescriptionSignals: string[];
   jobDescriptionProvided: boolean;
 }): string {
-  const roleMode = detectPromptRoleMode(roleTarget, jobDescriptionSignals);
+  const roleMode = detectRoleMode(roleTarget, jobDescriptionSignals).roleMode;
   const jobDescriptionSection = jobDescriptionProvided
     ? [
         "JOB DESCRIPTION SIGNALS:",
@@ -186,8 +100,10 @@ export function buildUserPrompt({
         : roleMode === "ai-product"
           ? [
               "OPENING SENTENCE HINT:",
-              "Start from product ownership, end-to-end execution, ideation, experimentation, autonomy, and ecosystem thinking.",
+              "Start from product ownership, execution, experimentation, and hands-on building.",
+              "The first sentence should reflect current product responsibility and operator mindset.",
               "Do not begin with embedded engineering background.",
+              'Do not begin with "I come from..." or "I started my career..."',
               "If the JD explicitly includes AI-first work, AI experimentation or AI-enabled workflows may be mentioned when supported by the profile."
             ].join("\n")
           : "";
@@ -210,6 +126,43 @@ export function buildUserPrompt({
             ].join("\n")
           : "";
 
+  const aiBuildingHintSection =
+    roleMode === "ai-product"
+      ? [
+          "AI PRODUCT EMPHASIS:",
+          "Include at least one concrete example of building, prototyping, experimenting, or validating an AI-enabled product or workflow when supported by the profile.",
+          "Frame AI as practical experimentation, not passive interest.",
+          "Mention trade-offs or system considerations when relevant, such as grounding, retrieval quality, accuracy, latency, or human oversight."
+        ].join("\n")
+      : "";
+
+  const aiConcreteExampleRuleSection =
+    roleMode === "ai-product"
+      ? [
+          "AI PRODUCT CONCRETE EXAMPLE RULE:",
+          "Include at least one specific example of an AI-enabled system, prototype, experiment, or workflow if supported by the retrieved context.",
+          'Generic phrases like "AI-powered product concepts" or "LLM-based systems" are not sufficient on their own.',
+          "Prefer a clearly described example such as a grounded interview agent, retrieval-based workflow, decision-support workflow, or LLM-based prototype with grounding, evaluation, or trade-offs.",
+          "If no concrete AI example is available, fall back to the strongest adjacent product or system experimentation evidence."
+        ].join("\n")
+      : "";
+
+  const executionLoopHintSection =
+    roleMode === "ai-product"
+      ? [
+          "EXECUTION LOOP HINT:",
+          "For AI-product roles, reflect a practical loop such as idea to prototype to iterate to validate to refine when supported by context."
+        ].join("\n")
+      : "";
+
+  const ecosystemHintSection =
+    roleMode === "ai-product" && jobDescriptionSignals.includes("ecosystem")
+      ? [
+          "ECOSYSTEM HINT:",
+          "Reflect system-level integration thinking rather than isolated feature thinking."
+        ].join("\n")
+      : "";
+
   const validationHintSection =
     roleMode === "embedded"
       ? [
@@ -223,19 +176,30 @@ export function buildUserPrompt({
           ].join("\n")
         : roleMode === "ai-product"
           ? [
-              "ROUTING VALIDATION HINT:",
-              "The answer is invalid if it does not emphasize ownership, execution, experimentation, or AI-enabled workflow orientation when supported by context."
+              "FINAL VALIDATION FOR AI-PRODUCT:",
+              "Before returning the answer, verify:",
+              "1. Does it open from product ownership or execution?",
+              "2. Does it include one concrete AI example if supported?",
+              "3. Does it frame AI as practical and iterative, not passive?",
+              "4. Does it reflect ownership, experimentation, or iteration?",
+              jobDescriptionSignals.includes("ecosystem")
+                ? "5. If the JD stresses ecosystem, does it reflect system-level integration thinking?"
+                : "5. Keep system-level integration thinking when relevant.",
+              "The answer is invalid if it opens with automotive or embedded identity, presents AI as vague interest only, fails to include a concrete AI building or experimentation example when one exists in context, or does not emphasize ownership, execution, experimentation, or autonomy.",
+              "If any check fails, rewrite internally before returning."
             ].join("\n")
           : "";
 
-  console.log(
-    "OPENING HINT APPLIED:",
-    roleMode === "general" ? "none" : roleMode
-  );
-  console.log(
-    "SUPPRESSION HINT APPLIED:",
-    roleMode === "general" ? "none" : roleMode
-  );
+    console.log(
+      "OPENING HINT APPLIED:",
+      roleMode === "general" ? "none" : roleMode
+    );
+    console.log("SUPPRESSION HINT APPLIED:", roleMode === "general" ? "none" : roleMode);
+    console.log("AI BUILDING HINT APPLIED:", roleMode === "ai-product");
+    console.log("AI CONCRETE EXAMPLE RULE APPLIED:", roleMode === "ai-product");
+    console.log("AI OPENING HINT APPLIED:", roleMode === "ai-product");
+    console.log("EXECUTION LOOP HINT APPLIED:", roleMode === "ai-product");
+    console.log("ECOSYSTEM HINT APPLIED:", Boolean(ecosystemHintSection));
 
   const userPrompt = [
     "Generate a supported interview answer from the retrieved profile context only.",
@@ -245,11 +209,19 @@ export function buildUserPrompt({
     "",
     jobDescriptionSection,
     "",
-    openingHintSection,
-    openingHintSection ? "" : "",
-    suppressionHintSection,
-    suppressionHintSection ? "" : "",
-    validationHintSection,
+      openingHintSection,
+      openingHintSection ? "" : "",
+      suppressionHintSection,
+      suppressionHintSection ? "" : "",
+      aiBuildingHintSection,
+      aiBuildingHintSection ? "" : "",
+      aiConcreteExampleRuleSection,
+      aiConcreteExampleRuleSection ? "" : "",
+      executionLoopHintSection,
+      executionLoopHintSection ? "" : "",
+      ecosystemHintSection,
+      ecosystemHintSection ? "" : "",
+      validationHintSection,
     validationHintSection ? "" : "",
     "Retrieved context:",
     formatSections(sections),
