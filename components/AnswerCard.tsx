@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnswerMode, AnswerResponse, RoleTarget } from "@/lib/types";
 
 interface AnswerCardProps {
@@ -21,6 +21,21 @@ export function AnswerCard({
   error
 }: AnswerCardProps) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
+  const [audioStatus, setAudioStatus] = useState<"idle" | "loading" | "playing">("idle");
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+      }
+    };
+  }, []);
 
   async function handleCopy() {
     if (!data?.answer) {
@@ -30,6 +45,54 @@ export function AnswerCard({
     await navigator.clipboard.writeText(data.answer);
     setCopyStatus("copied");
     window.setTimeout(() => setCopyStatus("idle"), 1800);
+  }
+
+  async function handlePlayAudio() {
+    if (!data?.answer) {
+      return;
+    }
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+
+    setAudioStatus("loading");
+
+    try {
+      const response = await fetch("/api/tts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          text: data.answer
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to generate audio.");
+      }
+
+      const blob = await response.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+
+      audioRef.current = audio;
+      audioUrlRef.current = audioUrl;
+      audio.onended = () => setAudioStatus("idle");
+      audio.onerror = () => setAudioStatus("idle");
+
+      await audio.play();
+      setAudioStatus("playing");
+    } catch {
+      setAudioStatus("idle");
+    }
   }
 
   return (
@@ -42,14 +105,28 @@ export function AnswerCard({
               Grounded output with support notes and experience tags.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleCopy}
-            disabled={!data?.answer}
-            className="inline-flex h-10 items-center rounded-xl border border-[var(--border)] bg-white px-3 text-sm font-medium text-[var(--text)] transition hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {copyStatus === "copied" ? "Copied" : "Copy"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePlayAudio}
+              disabled={!data?.answer || audioStatus === "loading"}
+              className="inline-flex h-10 items-center rounded-xl border border-[var(--border)] bg-white px-3 text-sm font-medium text-[var(--text)] transition hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {audioStatus === "loading"
+                ? "Loading..."
+                : audioStatus === "playing"
+                  ? "Playing..."
+                  : "🔊 Play"}
+            </button>
+            <button
+              type="button"
+              onClick={handleCopy}
+              disabled={!data?.answer}
+              className="inline-flex h-10 items-center rounded-xl border border-[var(--border)] bg-white px-3 text-sm font-medium text-[var(--text)] transition hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {copyStatus === "copied" ? "Copied" : "Copy"}
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 rounded-[20px] border border-[var(--border)] bg-white/80 p-4">
