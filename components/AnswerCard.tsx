@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { AnswerMode, AnswerResponse, RoleTarget } from "@/lib/types";
 
 interface AnswerCardProps {
@@ -12,6 +13,8 @@ interface AnswerCardProps {
   error: string | null;
 }
 
+const AUTO_PLAY = true;
+
 export function AnswerCard({
   data,
   answerMode,
@@ -21,21 +24,7 @@ export function AnswerCard({
   error
 }: AnswerCardProps) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
-  const [audioStatus, setAudioStatus] = useState<"idle" | "loading" | "playing">("idle");
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-
-      if (audioUrlRef.current) {
-        URL.revokeObjectURL(audioUrlRef.current);
-      }
-    };
-  }, []);
+  const audio = useAudioPlayer();
 
   async function handleCopy() {
     if (!data?.answer) {
@@ -52,48 +41,44 @@ export function AnswerCard({
       return;
     }
 
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current);
-      audioUrlRef.current = null;
-    }
-
-    setAudioStatus("loading");
-
-    try {
-      const response = await fetch("/api/tts", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          text: data.answer
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error("Unable to generate audio.");
-      }
-
-      const blob = await response.blob();
-      const audioUrl = URL.createObjectURL(blob);
-      const audio = new Audio(audioUrl);
-
-      audioRef.current = audio;
-      audioUrlRef.current = audioUrl;
-      audio.onended = () => setAudioStatus("idle");
-      audio.onerror = () => setAudioStatus("idle");
-
-      await audio.play();
-      setAudioStatus("playing");
-    } catch {
-      setAudioStatus("idle");
-    }
+    await audio.play(data.answer);
   }
+
+  async function handleReplayAudio() {
+    if (!data?.answer) {
+      return;
+    }
+
+    if (audio.currentText !== data.answer) {
+      await audio.play(data.answer);
+      return;
+    }
+
+    await audio.replay();
+  }
+
+  useEffect(() => {
+    if (!data?.answer) {
+      audio.stop();
+      return;
+    }
+
+    if (audio.currentText && audio.currentText !== data.answer) {
+      audio.stop();
+    }
+  }, [data?.answer]);
+
+  useEffect(() => {
+    if (!AUTO_PLAY || !data?.answer) {
+      return;
+    }
+
+    if (audio.currentText === data.answer) {
+      return;
+    }
+
+    void audio.play(data.answer);
+  }, [data?.answer]);
 
   return (
     <aside className="rounded-[24px] border border-[var(--border)] bg-[var(--surface-strong)] p-5">
@@ -109,14 +94,22 @@ export function AnswerCard({
             <button
               type="button"
               onClick={handlePlayAudio}
-              disabled={!data?.answer || audioStatus === "loading"}
+              disabled={!data?.answer || audio.isLoading}
               className="inline-flex h-10 items-center rounded-xl border border-[var(--border)] bg-white px-3 text-sm font-medium text-[var(--text)] transition hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {audioStatus === "loading"
+              {audio.isLoading
                 ? "Loading..."
-                : audioStatus === "playing"
-                  ? "Playing..."
-                  : "🔊 Play"}
+                : audio.isPlaying && audio.currentText === data?.answer
+                  ? "Pause"
+                  : "Play"}
+            </button>
+            <button
+              type="button"
+              onClick={handleReplayAudio}
+              disabled={!data?.answer || audio.isLoading}
+              className="inline-flex h-10 items-center rounded-xl border border-[var(--border)] bg-white px-3 text-sm font-medium text-[var(--text)] transition hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Replay
             </button>
             <button
               type="button"
@@ -144,9 +137,28 @@ export function AnswerCard({
                   Tailored to the supplied job description
                 </p>
               ) : null}
+              {(audio.isLoading || (audio.isPlaying && audio.currentText === data.answer)) ? (
+                <div className="inline-flex items-center gap-3 rounded-full border border-[var(--border)] bg-[var(--background)] px-3 py-2">
+                  <div
+                    className={`audio-wave ${audio.isPlaying ? "is-playing" : "is-loading"}`}
+                    aria-hidden="true"
+                  >
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                  <span className="text-xs font-medium text-[var(--muted)]">
+                    {audio.isLoading ? "Generating voice..." : "Playing response"}
+                  </span>
+                </div>
+              ) : null}
               <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--text)]">
                 {data.answer}
               </p>
+              {audio.error ? (
+                <p className="text-sm text-red-600">{audio.error}</p>
+              ) : null}
             </div>
           ) : (
             <p className="text-sm leading-7 text-[var(--muted)]">
