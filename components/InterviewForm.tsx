@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSpeechInput } from "@/hooks/useSpeechInput";
 import {
   ANSWER_MODES,
   AnswerMode,
@@ -22,6 +23,8 @@ interface InterviewFormProps {
   onErrorChange: (value: string | null) => void;
 }
 
+const AUTO_SUBMIT_ON_SPEECH_END = false;
+
 export function InterviewForm({
   answerMode,
   roleTarget,
@@ -36,6 +39,23 @@ export function InterviewForm({
 }: InterviewFormProps) {
   const [question, setQuestion] = useState("");
   const [jobDescription, setJobDescription] = useState("");
+  const startingQuestionRef = useRef("");
+  const {
+    isReady,
+    isSupported,
+    isListening,
+    transcript,
+    error: speechError,
+    startListening,
+    stopListening,
+    resetTranscript
+  } = useSpeechInput();
+  const canUseSpeech = isReady && isSupported;
+  const micTitle = !isReady
+    ? "Checking voice input..."
+    : isSupported
+      ? "Start voice input"
+      : "Voice input not supported in this browser";
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -86,12 +106,66 @@ export function InterviewForm({
     }
   }
 
+  function toggleListening() {
+    if (isListening) {
+      stopListening();
+      return;
+    }
+
+    window.dispatchEvent(new Event("aamir-audio-stop"));
+    startingQuestionRef.current = question.trim();
+    resetTranscript();
+    startListening();
+  }
+
+  useEffect(() => {
+    if (!isListening && !transcript) {
+      return;
+    }
+
+    const merged = [startingQuestionRef.current, transcript.trim()]
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    setQuestion(merged);
+  }, [isListening, transcript]);
+
+  useEffect(() => {
+    if (!AUTO_SUBMIT_ON_SPEECH_END || isListening || !transcript.trim()) {
+      return;
+    }
+
+    const form = document.getElementById("interview-form") as HTMLFormElement | null;
+    form?.requestSubmit();
+  }, [isListening, transcript]);
+
   return (
-    <form className="space-y-5" onSubmit={handleSubmit}>
+    <form className="space-y-5" id="interview-form" onSubmit={handleSubmit}>
       <div className="space-y-2">
-        <label className="text-sm font-medium text-[var(--text)]" htmlFor="question">
-          Interview question
-        </label>
+        <div className="flex items-center justify-between gap-3">
+          <label className="text-sm font-medium text-[var(--text)]" htmlFor="question">
+            Interview question
+          </label>
+          <div className="flex items-center gap-3">
+            {isListening ? (
+              <span className="inline-flex items-center gap-2 text-xs font-medium text-[var(--accent)]">
+                <span className="h-2 w-2 rounded-full bg-[var(--accent)] animate-pulse"></span>
+                Listening...
+              </span>
+            ) : null}
+            <button
+              type="button"
+              onClick={toggleListening}
+              disabled={!canUseSpeech}
+              title={micTitle}
+              className="inline-flex h-10 items-center justify-center rounded-xl border border-[var(--border)] bg-white px-3 text-sm font-medium text-[var(--text)] transition hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isListening ? "Stop" : "Start voice input"}
+            </button>
+          </div>
+        </div>
         <textarea
           id="question"
           value={question}
@@ -100,6 +174,14 @@ export function InterviewForm({
           placeholder="How would you describe your approach to leading platform work across product, architecture, and delivery?"
           className="min-h-[220px] w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 text-sm leading-6 text-[var(--text)] shadow-sm outline-none transition focus:border-[var(--accent)] focus:ring-4 focus:ring-[rgba(13,92,99,0.12)]"
         />
+        {isReady && !isSupported ? (
+          <p className="text-sm text-[var(--muted)]">
+            Voice input is not supported in this browser.
+          </p>
+        ) : null}
+        {speechError ? (
+          <p className="text-sm text-red-600">{speechError}</p>
+        ) : null}
       </div>
 
       <div className="space-y-2">

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { AnswerMode, AnswerResponse, RoleTarget } from "@/lib/types";
 
 interface AnswerCardProps {
@@ -12,6 +13,8 @@ interface AnswerCardProps {
   error: string | null;
 }
 
+const AUTO_PLAY = true;
+
 export function AnswerCard({
   data,
   answerMode,
@@ -21,6 +24,7 @@ export function AnswerCard({
   error
 }: AnswerCardProps) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
+  const audio = useAudioPlayer();
 
   async function handleCopy() {
     if (!data?.answer) {
@@ -32,6 +36,50 @@ export function AnswerCard({
     window.setTimeout(() => setCopyStatus("idle"), 1800);
   }
 
+  async function handlePlayAudio() {
+    if (!data?.answer) {
+      return;
+    }
+
+    await audio.play(data.answer);
+  }
+
+  async function handleReplayAudio() {
+    if (!data?.answer) {
+      return;
+    }
+
+    if (audio.currentText !== data.answer) {
+      await audio.play(data.answer);
+      return;
+    }
+
+    await audio.replay();
+  }
+
+  useEffect(() => {
+    if (!data?.answer) {
+      audio.stop();
+      return;
+    }
+
+    if (audio.currentText && audio.currentText !== data.answer) {
+      audio.stop();
+    }
+  }, [data?.answer]);
+
+  useEffect(() => {
+    if (!AUTO_PLAY || !data?.answer) {
+      return;
+    }
+
+    if (audio.currentText === data.answer) {
+      return;
+    }
+
+    void audio.play(data.answer);
+  }, [data?.answer]);
+
   return (
     <aside className="rounded-[24px] border border-[var(--border)] bg-[var(--surface-strong)] p-5">
       <div className="flex h-full flex-col">
@@ -42,14 +90,36 @@ export function AnswerCard({
               Grounded output with support notes and experience tags.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleCopy}
-            disabled={!data?.answer}
-            className="inline-flex h-10 items-center rounded-xl border border-[var(--border)] bg-white px-3 text-sm font-medium text-[var(--text)] transition hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {copyStatus === "copied" ? "Copied" : "Copy"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePlayAudio}
+              disabled={!data?.answer || audio.isLoading}
+              className="inline-flex h-10 items-center rounded-xl border border-[var(--border)] bg-white px-3 text-sm font-medium text-[var(--text)] transition hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {audio.isLoading
+                ? "Loading..."
+                : audio.isPlaying && audio.currentText === data?.answer
+                  ? "Pause"
+                  : "Play"}
+            </button>
+            <button
+              type="button"
+              onClick={handleReplayAudio}
+              disabled={!data?.answer || audio.isLoading}
+              className="inline-flex h-10 items-center rounded-xl border border-[var(--border)] bg-white px-3 text-sm font-medium text-[var(--text)] transition hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Replay
+            </button>
+            <button
+              type="button"
+              onClick={handleCopy}
+              disabled={!data?.answer}
+              className="inline-flex h-10 items-center rounded-xl border border-[var(--border)] bg-white px-3 text-sm font-medium text-[var(--text)] transition hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {copyStatus === "copied" ? "Copied" : "Copy"}
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 rounded-[20px] border border-[var(--border)] bg-white/80 p-4">
@@ -67,9 +137,28 @@ export function AnswerCard({
                   Tailored to the supplied job description
                 </p>
               ) : null}
+              {(audio.isLoading || (audio.isPlaying && audio.currentText === data.answer)) ? (
+                <div className="inline-flex items-center gap-3 rounded-full border border-[var(--border)] bg-[var(--background)] px-3 py-2">
+                  <div
+                    className={`audio-wave ${audio.isPlaying ? "is-playing" : "is-loading"}`}
+                    aria-hidden="true"
+                  >
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                  <span className="text-xs font-medium text-[var(--muted)]">
+                    {audio.isLoading ? "Generating voice..." : "Playing response"}
+                  </span>
+                </div>
+              ) : null}
               <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--text)]">
                 {data.answer}
               </p>
+              {audio.error ? (
+                <p className="text-sm text-red-600">{audio.error}</p>
+              ) : null}
             </div>
           ) : (
             <p className="text-sm leading-7 text-[var(--muted)]">
