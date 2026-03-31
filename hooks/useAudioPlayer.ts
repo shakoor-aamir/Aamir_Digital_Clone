@@ -120,7 +120,14 @@ export function useAudioPlayer(): AudioPlayerState {
   }
 
   useEffect(() => {
+    function handleExternalStop() {
+      stop();
+    }
+
+    window.addEventListener("aamir-audio-stop", handleExternalStop);
+
     return () => {
+      window.removeEventListener("aamir-audio-stop", handleExternalStop);
       stop();
     };
   }, []);
