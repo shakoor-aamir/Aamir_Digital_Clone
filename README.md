@@ -47,6 +47,9 @@ The result is an answer engine that is personalized, inspectable, and much more 
 - Fact-oriented retrieval for timeline, education, certifications, and company history
 - Debug logging for chunk selection, reranking, suppression, and final prompt context
 - Local JSON index for embeddings, without requiring a vector database
+- 🔊 Voice Output — Answers can be played using a lightweight, quickly generated AI voice for real-time interaction
+- 🎤 Voice Input — Ask questions using your microphone with real-time transcription
+- 🗣️ Conversational Flow — Speak → generate → listen, creating a natural interaction loop
 
 ## System Architecture
 
@@ -90,16 +93,13 @@ User Question + Role Target + Optional Job Description
 
 ## How It Works
 
-1. The user submits an interview question, selects an answer mode and role target, and can optionally paste a job description.
-2. The system extracts signals from the job description and routes the request into an appropriate role mode.
-3. A query embedding is generated and compared against a locally stored embedding index of profile chunks.
-4. Top semantic matches are reranked using exact keyword matches, source trust, evidence strength, role tags, domain tags, and suppression rules.
-5. Only the strongest grounded chunks are injected into prompt assembly.
-6. The model receives strict instructions to answer only from supported evidence.
-7. The final response returns:
-   - the answer
-   - experience areas used
-   - a support note describing evidence confidence
+1. User types or speaks a question
+2. Job description is parsed (if provided)
+3. Role is detected dynamically
+4. Relevant profile data is retrieved using Hybrid RAG
+5. Retrieved content is reranked using role-aware logic
+6. LLM generates a grounded answer
+7. Answer can be played as audio using AI-generated voice
 
 ## Example Use Case
 
@@ -113,8 +113,20 @@ The system will:
 - retrieve AI-building and product-execution evidence from the profile
 - avoid opening with automotive embedded identity
 - emphasize hands-on product experimentation, grounding, validation, and execution where supported
+- Supports voice input and AI-generated voice output for a more natural interaction.
 
 That produces a more credible answer than a generic AI response or a static personal bio.
+
+## 🎙️ Voice Interaction
+
+The system includes a lightweight voice interaction layer:
+
+- Speak your question using the microphone
+- The system transcribes it into text
+- Generates a grounded answer
+- Plays the answer back using a lightweight AI-generated voice
+
+This design prioritizes fast interaction and rapid prototyping over heavy voice infrastructure.
 
 ## Roadmap
 
@@ -123,6 +135,9 @@ That produces a more credible answer than a generic AI response or a static pers
 - Introduce optional answer trace/debug mode in the UI
 - Expand the system from personal clone to reusable multi-profile platform
 - Support additional model providers with the same retrieval core
+- Voice conversation mode (continuous interaction)
+- Real-time streaming voice interface
+- Improved audio UX (waveforms, playback controls)
 
 ## Positioning
 
